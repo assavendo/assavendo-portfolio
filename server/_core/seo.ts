@@ -4,7 +4,7 @@ import { getDb } from "../db";
 import { products } from "../../drizzle/schema";
 
 const SITE_NAME = "Assavendo";
-const HERO_IMAGE = "/manus-storage/async-images/va7Dp7VDTSXdrSSpamNiPu/image-1.webp";
+const HERO_IMAGE = "/manus-storage/async-images/TFbA7al6ORF4nnmaavF8Gg/image-1.webp";
 
 type SeoPage = {
   status: number;

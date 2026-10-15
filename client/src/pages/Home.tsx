@@ -19,7 +19,7 @@ export default function Home() {
         <div className="hero-proof"><span className="proof-mark"><Sparkles size={15} /></span><span>Concepts testables, projets lisibles, résultats sans promesse gonflée.</span></div>
       </div>
       <div className="hero-visual">
-        <img src="/manus-storage/async-images/va7Dp7VDTSXdrSSpamNiPu/image-1.webp" alt="Composition abstraite éditoriale, arches bleu pétrole et papier ivoire" />
+        <img src="/manus-storage/async-images/TFbA7al6ORF4nnmaavF8Gg/image-1.webp" alt="Composition abstraite éditoriale, arches bleu pétrole et papier ivoire" />
         <div className="hero-index"><span>01—10</span><small>ÉDITIONS DE PORTFOLIO</small></div>
         <div className="hero-floating-card"><span className="floating-kicker">UN STUDIO, 100 PISTES</span><strong>Du concept<br />au concret.</strong><Link href="/portfolio">Voir les exemples <ArrowUpRight size={14} /></Link></div>
       </div>
