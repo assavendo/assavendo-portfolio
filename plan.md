@@ -11,7 +11,7 @@ Créer un portfolio e-commerce français premium qui explique les compétences d
 - Garder les exemples de portfolio distincts des produits vendus et utiliser un jeu de données éditorial versionné pour les 100 concepts.
 - Protéger l’administration par la session et le rôle propriétaire ; ne pas fabriquer de connexion de démonstration ni de faux comptes.
 - Le provisionnement Stripe natif a répondu `country_not_supported`. Utiliser le compte Stripe français existant via le SDK Stripe côté serveur ; la clé de test est conservée dans le coffre sécurisé, jamais dans le code. Le paiement restera bloqué jusqu’à la configuration d’un webhook de test vérifié. Le propriétaire fera ensuite la bascule vers les clés live par une procédure sécurisée.
-- GitHub est activé, mais le dépôt canonique initial est Manus ; inspecter les possibilités de liaison avant tout basculement de dépôt.
+- Le dépôt canonique GitHub privé `assavendo/assavendo-portfolio` a été confirmé par le propriétaire et vérifié après transfert ; `main` contient le checkpoint `3c457dc37e9e5297caf33993ea1086a9556d7475`.
 
 ## Approche fonctionnelle
 
@@ -55,7 +55,7 @@ Les références visuelles repérées dans la recherche renvoyaient à des annon
 ## Dépendances et limites
 
 - Le compte de session Supabase n’expose aucun projet ; il n’est pas utilisé pour cette version.
-- Le dépôt Git actuel est lié à Manus ; la connexion à GitHub doit respecter le guide de dépôt canonique et ne pas réécrire l’historique.
+- Le dépôt canonique actif est le dépôt GitHub privé `assavendo/assavendo-portfolio` ; la liaison a transféré le checkpoint validé sans réécrire l’historique.
 - Le mode Stripe géré par la plateforme n’est pas disponible pour ce compte (`country_not_supported`). La voie retenue est le compte Stripe français existant et ses clés en secrets d’environnement ; la clé de webhook de test doit encore être créée dans Stripe et enregistrée de manière sécurisée avant tout achat test. Aucune clé live n’est utilisée.
 - Les téléchargements/médias durables utilisent les chemins de stockage du projet lorsqu’un fichier téléversé est requis ; aucune clé privée n’est livrée au navigateur.
 - Le périmètre vise une base complète et exploitable dans le projet initialisé ; il ne fabrique ni identité juridique, ni produits réels, ni témoignages, ni coordonnées du propriétaire.
