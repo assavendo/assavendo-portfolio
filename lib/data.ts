@@ -21,14 +21,14 @@ function fromSeed(): { domains: Domain[]; problems: Problem[] } {
 
 export const getDomains = unstable_cache(async (): Promise<Domain[]> => {
   if (!isSupabaseConfigured) return fromSeed().domains;
-  const { data } = await supabasePublic().from("domains").select("*").order("sort");
-  return (data ?? []) as Domain[];
+  const { data, error } = await supabasePublic().from("domains").select("*").order("sort");
+  return !error && data?.length ? data as Domain[] : fromSeed().domains;
 }, ["domains"], { revalidate: 120, tags: ["domains"] });
 
 export const getPublishedProblems = unstable_cache(async (): Promise<Problem[]> => {
   if (!isSupabaseConfigured) return fromSeed().problems;
-  const { data } = await supabasePublic().from("problems").select("*, domains(name, slug)").eq("status", "published").order("sort");
-  return (data ?? []) as unknown as Problem[];
+  const { data, error } = await supabasePublic().from("problems").select("*, domains(name, slug)").eq("status", "published").order("sort");
+  return !error && data?.length ? data as unknown as Problem[] : fromSeed().problems;
 }, ["problems"], { revalidate: 120, tags: ["problems"] });
 
 export type Filters = { q?: string; domain?: string; format?: string; audience?: string };
