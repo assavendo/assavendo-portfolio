@@ -7,26 +7,26 @@ import { portfolioCategories, portfolioExamples } from "@/data/portfolio-example
 import { usePageMeta } from "@/lib/meta";
 
 export default function Home() {
-  usePageMeta("Assavendo — Studio digital & commerce", "Portfolio digital, prototypes interactifs et créations e-commerce. Explorez 100 concepts, puis découvrez les produits Assavendo.");
+  usePageMeta("Assavendo — Studio digital & commerce", "Portfolio digital, démonstrations interactives et créations e-commerce. Explorez 100 problèmes web documentés, puis découvrez les produits Assavendo.");
   const featured = [portfolioExamples[1], portfolioExamples[11], portfolioExamples[53]];
   return <SiteShell>
     <section className="hero-section">
       <div className="hero-copy">
         <span className="eyebrow hero-eyebrow"><span className="eyebrow-line" /> STUDIO DIGITAL INDÉPENDANT</span>
         <h1>Des idées claires.<br /><em>Des expériences</em><br />qui font avancer.</h1>
-        <p className="hero-lede">Assavendo conçoit des expériences numériques élégantes et utiles — du premier concept aux produits qui se vendent.</p>
+        <p className="hero-lede">Assavendo conçoit des expériences numériques élégantes et utiles — du premier diagnostic aux produits qui se vendent.</p>
         <div className="hero-actions"><Link href="/portfolio" className="button button-primary">Explorer le portfolio <ArrowRight size={17} /></Link><Link href="/#expertises" className="button button-quiet">Découvrir nos expertises <ArrowDown size={16} /></Link></div>
-        <div className="hero-proof"><span className="proof-mark"><Sparkles size={15} /></span><span>Concepts testables, projets lisibles, résultats sans promesse gonflée.</span></div>
+        <div className="hero-proof"><span className="proof-mark"><Sparkles size={15} /></span><span>Problèmes testables, projets lisibles, résultats sans promesse gonflée.</span></div>
       </div>
       <div className="hero-visual">
         <img src="/manus-storage/async-images/TFbA7al6ORF4nnmaavF8Gg/image-1.webp" alt="Composition abstraite éditoriale, arches bleu pétrole et papier ivoire" />
         <div className="hero-index"><span>01—10</span><small>ÉDITIONS DE PORTFOLIO</small></div>
-        <div className="hero-floating-card"><span className="floating-kicker">UN STUDIO, 100 PISTES</span><strong>Du concept<br />au concret.</strong><Link href="/portfolio">Voir les exemples <ArrowUpRight size={14} /></Link></div>
+        <div className="hero-floating-card"><span className="floating-kicker">UN STUDIO, 100 RÉPONSES</span><strong>Du problème<br />à la solution.</strong><Link href="/portfolio">Voir les fiches <ArrowUpRight size={14} /></Link></div>
       </div>
       <div className="hero-bottomline"><span>Stratégie · Design · Développement</span><span>France <i>—</i> En ligne partout</span></div>
     </section>
 
-    <section className="proof-strip" aria-label="Repères du portfolio"><div><strong>100</strong><span>concepts explorables</span></div><div><strong>10</strong><span>familles de business</span></div><div><strong>01</strong><span>même exigence de détail</span></div><Link href="/portfolio">Parcourir la collection <ArrowRight size={15} /></Link></section>
+    <section className="proof-strip" aria-label="Repères du portfolio"><div><strong>100</strong><span>problèmes explorables</span></div><div><strong>10</strong><span>domaines web</span></div><div><strong>01</strong><span>même exigence de détail</span></div><Link href="/portfolio">Parcourir la collection <ArrowRight size={15} /></Link></section>
 
     <section className="section section-services" id="expertises">
       <div className="section-heading"><div><span className="eyebrow">CE QUE NOUS FAISONS</span><h2>Du fond, puis de la forme.</h2></div><p>Une bonne expérience ne se contente pas d’être belle. Elle clarifie l’offre, enlève les frictions et transforme l’intention en action.</p></div>
@@ -39,9 +39,9 @@ export default function Home() {
     </section>
 
     <section className="section featured-section">
-      <div className="section-heading"><div><span className="eyebrow">LA COLLECTION</span><h2>Cent idées. Des usages concrets.</h2></div><Link href="/portfolio" className="text-link">Voir les 100 exemples <ArrowRight size={16} /></Link></div>
+      <div className="section-heading"><div><span className="eyebrow">LA COLLECTION</span><h2>100 problèmes. Des réponses concrètes.</h2></div><Link href="/portfolio" className="text-link">Voir les 100 fiches <ArrowRight size={16} /></Link></div>
       <div className="example-grid featured-grid">{featured.map((item) => <ExampleCard item={item} key={item.slug} />)}</div>
-      <div className="collection-note"><span className="collection-note-number">100</span><p>Chaque concept est un prototype de portfolio : sa cible, sa promesse et son parcours sont exposés clairement, puis vous pouvez tester une interaction directement sur le site.</p><Link href="/portfolio" className="button button-outline">Entrer dans la collection <ArrowRight size={16} /></Link></div>
+      <div className="collection-note"><span className="collection-note-number">100</span><p>Chaque problème est documenté comme un vrai cas de travail : symptôme, cause technique, solution et démonstration testable ou consultable directement sur le site.</p><Link href="/portfolio" className="button button-outline">Entrer dans le catalogue <ArrowRight size={16} /></Link></div>
     </section>
 
     <section className="shop-callout"><div className="shop-callout-inner"><div><span className="eyebrow eyebrow-light">LES CRÉATIONS ASSAVENDO</span><h2>Des exemples à explorer.<br /><em>Des créations à adopter.</em></h2><p>La boutique est un espace distinct du portfolio : seuls les produits réellement publiés y seront proposés à la vente.</p><Link href="/boutique" className="button button-light">Découvrir la boutique <ArrowRight size={16} /></Link></div><div className="shop-callout-mark"><span>A</span><i /><b /></div></div></section>

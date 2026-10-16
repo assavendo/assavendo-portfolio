@@ -1,51 +1,23 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, Check, CircleCheck, Heart, Minus, Plus, Sparkles, TrendingUp } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Check, Download, FileText, FlaskConical, Info, Sparkles, WandSparkles } from "lucide-react";
 import type { PortfolioExample } from "@/data/portfolio-examples";
 
-export function InteractiveDemo({ item }: { item: PortfolioExample }) {
-  const [cart, setCart] = useState(0);
-  const [selected, setSelected] = useState("10:30");
-  const [checked, setChecked] = useState<number[]>([0]);
-  const [liked, setLiked] = useState(false);
-  const [answer, setAnswer] = useState<number | null>(null);
-  const total = useMemo(() => (cart * 24).toLocaleString("fr-FR", { style: "currency", currency: "EUR" }), [cart]);
+const kindLabel: Record<PortfolioExample["kind"], string> = { CRÉER: "Outil interactif", GÉNÉRER: "Générateur de livrable", EXPLIQUER: "Étude consultable" };
 
-  return (
-    <section className="demo-workspace" aria-label={`Démonstration interactive ${item.title}`}>
-      <div className="demo-chrome">
-        <span className="demo-light" /><span className="demo-light" /><span className="demo-light" />
-        <span className="demo-url">aperçu.assavendo.fr / {item.slug}</span>
-        <span className="demo-badge"><span /> Démo interactive</span>
-      </div>
-      <div className="demo-body">
-        <div className="demo-brandline"><span className="mini-brand">{item.title.split(" ").map((part) => part[0]).join("").slice(0, 2)}</span><span>{item.title}</span><span className="demo-brand-muted">Expérience de démonstration</span></div>
-        {item.demo === "store" && <div className="demo-content">
-          <div className="demo-copy"><span className="eyebrow">COLLECTION SIGNATURE</span><h3>Le beau, en toute simplicité.</h3><p>Une sélection pensée avec soin, livrée avec une attention particulière aux détails.</p><div className="demo-price">24,00 € <span>— édition découverte</span></div>
-            <div className="demo-cart-control"><button aria-label="Retirer un article" onClick={() => setCart(Math.max(0, cart - 1))}><Minus size={15} /></button><span>{cart}</span><button aria-label="Ajouter un article" onClick={() => setCart(cart + 1)}><Plus size={15} /></button><button className="button button-primary" onClick={() => setCart(cart + 1)}>{cart ? `Panier · ${total}` : "Ajouter au panier"} <ArrowRight size={15} /></button></div>
-          </div><div className={`demo-product-art art-${item.id % 8}`}><span className="art-orbit orbit-one" /><span className="art-orbit orbit-two" /><span className="product-monogram">{item.title.slice(0, 1)}</span><span className="product-caption">SÉLECTION N° {item.number}</span></div>
-        </div>}
-        {item.demo === "dashboard" && <div className="demo-content dashboard-content">
-          <div className="demo-copy"><span className="eyebrow">ESPACE DE PILOTAGE</span><h3>Votre activité, au bon niveau.</h3><p>Une vue claire des priorités de la semaine. Cochez une action pour la faire avancer.</p><div className="demo-checklist">{["Finaliser les priorités du jour", "Partager le point d’équipe", "Bloquer une plage de concentration"].map((label, index) => <button key={label} className="demo-check-row" onClick={() => setChecked((value) => value.includes(index) ? value.filter((itemIndex) => itemIndex !== index) : [...value, index])}><span className={checked.includes(index) ? "check-box checked" : "check-box"}>{checked.includes(index) && <Check size={12} />}</span>{label}</button>)}</div></div>
-          <div className="metric-stack"><div className="metric-card"><span>Actions réalisées</span><strong>{checked.length}<small> / 3</small></strong><div className="metric-bar"><i style={{ width: `${checked.length / 3 * 100}%` }} /></div></div><div className="metric-card metric-dark"><span><TrendingUp size={15} /> Progression cette semaine</span><strong>+{14 + checked.length * 3}%</strong><small>Un aperçu visuel, pas une donnée réelle.</small></div></div>
-        </div>}
-        {item.demo === "course" && <div className="demo-content course-content">
-          <div className="demo-copy"><span className="eyebrow">MICRO-LEÇON · 02 MIN</span><h3>Apprendre en faisant.</h3><p>Un parcours court combine une idée clé et une question pour vérifier la compréhension.</p><div className="lesson-progress"><span>02 / 06</span><i><b /></i><span>Leçon</span></div></div>
-          <div className="quiz-card"><span className="quiz-count">QUESTION 01</span><h4>Quel est le meilleur prochain pas ?</h4>{["Tester une petite action", "Tout automatiser d’emblée", "Ajouter des étapes sans mesure"].map((option, index) => <button key={option} className={`quiz-option ${answer === index ? (index === 0 ? "correct" : "incorrect") : ""}`} onClick={() => setAnswer(index)}>{option}{answer === index && (index === 0 ? <CircleCheck size={17} /> : <span>↻</span>)}</button>)}{answer === 0 && <p className="quiz-feedback">Exact : un test court donne un signal exploitable.</p>}</div>
-        </div>}
-        {item.demo === "booking" && <div className="demo-content booking-content">
-          <div className="demo-copy"><span className="eyebrow">PRENDRE RENDEZ-VOUS</span><h3>Choisissez un moment pour vous.</h3><p>Un parcours de réservation calme et lisible, du choix du créneau à la confirmation.</p><div className="appointment-service"><CalendarDays size={18} /><span>Session découverte · 45 min<small>En visio ou au studio</small></span><strong>45 €</strong></div></div>
-          <div className="slot-card"><span className="eyebrow">MARDI 21 OCTOBRE</span><div className="slot-grid">{["09:00", "10:30", "13:00", "14:30"].map((time) => <button key={time} className={selected === time ? "slot active" : "slot"} onClick={() => setSelected(time)}>{time}</button>)}</div><button className="button button-primary slot-confirm" onClick={() => setSelected(`${selected} · réservé`)}><CalendarDays size={15} /> Choisir {selected.includes("réservé") ? "un autre créneau" : selected}</button></div>
-        </div>}
-        {item.demo === "creator" && <div className="demo-content creator-content">
-          <div className="creator-card"><div className="creator-avatar">A</div><span className="eyebrow">STUDIO INDÉPENDANT</span><h3>De l’intention au résultat.</h3><p>{item.tagline}</p><div className="creator-tags"><span>Identité</span><span>Direction artistique</span><span>Digital</span></div><button className="button button-primary" onClick={() => setLiked(!liked)}>{liked ? <Check size={16} /> : <Heart size={16} />} {liked ? "Enregistré" : "Enregistrer ce studio"}</button></div>
-          <div className="portfolio-sample"><div className="sample-art art-3"><span className="sample-mark">Aa</span></div><div className="sample-art art-5"><span className="sample-mark">01</span></div><div className="sample-caption">Une sélection éditoriale de projets et de méthodes.</div></div>
-        </div>}
-        {item.demo === "impact" && <div className="demo-content impact-content">
-          <div className="demo-copy"><span className="eyebrow">IMPACT EN MOUVEMENT</span><h3>Chaque geste compte, s’il se voit.</h3><p>Suivez des actions concrètes et comprenez ce qui progresse, sans indicateurs décoratifs.</p><button className="button button-primary" onClick={() => setLiked(!liked)}><Sparkles size={16} /> {liked ? "Vous participez" : "Rejoindre l’initiative"}</button></div>
-          <div className="impact-stat-grid"><div className="impact-stat"><span>Objets réemployés</span><strong>{128 + (liked ? 1 : 0)}</strong><small>Dans ce prototype</small></div><div className="impact-stat"><span>Communauté</span><strong>{42 + (liked ? 1 : 0)}</strong><small>Contributeurs test</small></div><div className="impact-ring"><span>{liked ? "+1" : "72%"}<small>objectif test</small></span></div></div>
-        </div>}
-      </div>
-      <div className="demo-disclaimer"><Sparkles size={14} /> Prototype de portfolio : les données et transactions affichées sont fictives.</div>
-    </section>
-  );
+export function InteractiveDemo({ item }: { item: PortfolioExample }) {
+  const [ran, setRan] = useState(false);
+  const [input, setInput] = useState("Données d’exemple");
+  const [studyTab, setStudyTab] = useState<"diagnostic" | "methode" | "checklist">("diagnostic");
+  const [copied, setCopied] = useState(false);
+  const Icon = item.kind === "CRÉER" ? FlaskConical : item.kind === "GÉNÉRER" ? WandSparkles : FileText;
+  const title = item.kind === "CRÉER" ? "Lancer le contrôle" : item.kind === "GÉNÉRER" ? "Produire un premier livrable" : "Lire l’étude de cas";
+  const output = item.kind === "CRÉER" ? `Contrôle terminé : la démonstration reproduit « ${item.onSite} » et met en évidence la priorité suivante : ${item.solution}` : `Livrable d’exemple généré pour « ${input || "un cas d’usage"} » : ${item.onSite} Méthode proposée : ${item.solution}`;
+  const downloadStudy = () => { setCopied(true); window.setTimeout(() => setCopied(false), 1800); };
+  return <section className="demo-workspace problem-demo-workspace" aria-label={`${kindLabel[item.kind]} — ${item.title}`}>
+    <div className="demo-chrome"><span className="demo-light" /><span className="demo-light" /><span className="demo-light" /><span className="demo-url">test.assavendo.fr / p{item.number}</span><span className="demo-badge"><span /> Données d’exemple</span></div>
+    <div className="demo-body"><div className="demo-brandline"><span className="mini-brand">P{item.number}</span><span>{item.title}</span><span className="demo-brand-muted">{kindLabel[item.kind]}</span></div>
+      <div className="problem-demo-header"><div><span className="eyebrow">P{item.number} · {item.kind}</span><h2>{item.kind === "EXPLIQUER" ? "Une méthode à comprendre, pas une promesse à croire." : item.kind === "GÉNÉRER" ? "Un premier résultat à relire et à personnaliser." : "Un contrôle court, visible et actionnable."}</h2><p>{item.onSite}</p></div><div className="demo-kpi"><span>FORMAT</span><strong>{item.kind === "CRÉER" ? "TEST" : item.kind === "GÉNÉRER" ? "SORTIE" : "GUIDE"}</strong><small>sans inscription</small></div></div>
+      {item.kind === "EXPLIQUER" ? <div className="study-panel"><div className="study-tabs" role="tablist" aria-label="Sections de l’étude"><button className={studyTab === "diagnostic" ? "active" : ""} onClick={() => setStudyTab("diagnostic")}>Diagnostic</button><button className={studyTab === "methode" ? "active" : ""} onClick={() => setStudyTab("methode")}>Méthode</button><button className={studyTab === "checklist" ? "active" : ""} onClick={() => setStudyTab("checklist")}>Checklist</button></div><div className="study-content">{studyTab === "diagnostic" && <><span className="eyebrow">CE QUI SE PASSE</span><h3>{item.problem}</h3><p><strong>Cause technique :</strong> {item.cause}</p></>}{studyTab === "methode" && <><span className="eyebrow">COMMENT CORRIGER</span><h3>Une architecture proportionnée au risque.</h3><p>{item.solution}</p><p className="study-stack"><strong>Stack conseillée :</strong> {item.stack}</p></>}{studyTab === "checklist" && <><span className="eyebrow">AVANT LA MISE EN LIGNE</span><div className="study-checks"><div><Check size={15} /> Reproduire le symptôme avec des données d’exemple</div><div><Check size={15} /> Vérifier la correction sur mobile et clavier</div><div><Check size={15} /> Documenter ce qui est mesuré et ce qui reste à valider</div></div><button className="button button-outline" onClick={downloadStudy}><Download size={15} />{copied ? "Checklist préparée" : "Préparer la checklist"}</button></>}</div></div> : <div className="tool-panel"><div className="tool-input-card"><span className="eyebrow">PARAMÈTRE DE TEST</span><label>Votre cas d’exemple<textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} aria-label="Paramètre de test" /></label><button className="button button-primary" onClick={() => setRan(true)}><Icon size={16} />{title}<ArrowRight size={15} /></button><small>La saisie reste dans votre navigateur et est effacée en quittant la page.</small></div><div className={`tool-output-card ${ran ? "is-ready" : ""}`} aria-live="polite"><span className="eyebrow">RÉSULTAT VISIBLE</span>{ran ? <><div className="result-status"><span><Check size={14} /> Contrôle effectué</span><strong>PRIORITÉ 01</strong></div><h3>{item.title}</h3><p>{output}</p><div className="result-next"><span>Prochaine étape</span><strong>{item.solution.split(".")[0]}.</strong></div></> : <><div className="result-placeholder"><Info size={18} /><p>Le résultat et l’indicateur de progression apparaîtront ici en moins de 5 secondes.</p></div><span className="result-hint">Cliquez sur « {title} » pour commencer.</span></>}</div></div>}
+    </div><div className="demo-disclaimer"><Sparkles size={14} /> Prototype de travail : données fictives, aucun compte créé, aucune donnée envoyée ni conservée.</div>
+  </section>;
 }
