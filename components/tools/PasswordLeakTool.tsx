@@ -22,12 +22,14 @@ export default function PasswordLeakTool() {
   }
   return (
     <div>
+      <p className="alert alert-err" role="note" style={{ marginBottom: "1rem" }}><strong>Ne saisissez pas un mot de passe que vous utilisez encore.</strong> Le test est anonyme (seuls 5 caractères d'une empreinte quittent votre navigateur), mais la bonne habitude est de tester un mot de passe d'exemple ou un ancien.</p>
       <form className="tool-form" onSubmit={check} autoComplete="off">
-        <label className="field" style={{ flex: "1 1 260px" }}>Mot de passe à tester (utilisez de préférence un mot de passe que vous n'utilisez plus)
+        <label className="field" style={{ flex: "1 1 260px" }}>Mot de passe d'exemple à tester
           <input className="input" type={show ? "text" : "password"} value={pwd} onChange={(e) => setPwd(e.target.value)} autoComplete="off" spellCheck={false} />
         </label>
         <label style={{ alignSelf: "end", display: "flex", gap: ".4rem", paddingBottom: ".8rem" }}><input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Afficher</label>
         <button className="btn btn-primary" disabled={busy || !pwd} style={{ alignSelf: "end" }}>{busy ? "Vérification…" : "Vérifier"}</button>
+        <button type="button" className="btn btn-ghost" style={{ alignSelf: "end" }} onClick={() => { setPwd("azerty123"); setShow(true); setRes(null); }}>Essayer avec un exemple</button>
       </form>
       {err ? <p className="alert alert-err" role="alert" style={{ marginTop: "1rem" }}>{err}</p> : null}
       {res ? (

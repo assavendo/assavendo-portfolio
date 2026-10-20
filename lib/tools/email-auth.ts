@@ -1,5 +1,16 @@
 export type EmailIssue = { level: "erreur" | "avertissement" | "ok"; text: string; fix?: string };
-export type EmailReport = { spf: { record: string | null; issues: EmailIssue[] }; dmarc: { record: string | null; issues: EmailIssue[] }; score: number };
+export type EmailReport = { spf: { record: string | null; issues: EmailIssue[] }; dmarc: { record: string | null; issues: EmailIssue[] }; dkim: DkimResult; score: number };
+
+/** Sélecteurs DKIM les plus répandus (Google Workspace, Microsoft 365, Mailchimp, SendGrid, Resend, Brevo…). Un sélecteur personnalisé ne peut pas être deviné. */
+export const DKIM_SELECTORS = ["default", "google", "selector1", "selector2", "k1", "k2", "k3", "mail", "dkim", "s1", "s2", "smtp", "resend", "mandrill", "mte1", "mxvault", "sig1", "brevo1", "brevo2"] as const;
+export type DkimResult = { found: { selector: string; record: string }[]; checked: number; issue: EmailIssue };
+
+/** Interprète les enregistrements trouvés pour les sélecteurs testés. */
+export function analyzeDkim(found: { selector: string; record: string }[], checked: number): DkimResult {
+  const valid = found.filter((f) => /v=DKIM1|k=rsa|k=ed25519|p=[A-Za-z0-9+/=]{20,}/i.test(f.record));
+  if (valid.length) return { found: valid, checked, issue: { level: "ok", text: `${valid.length} clé${valid.length > 1 ? "s" : ""} DKIM détectée${valid.length > 1 ? "s" : ""} (${valid.map((v) => v.selector).join(", ")}).` } };
+  return { found: [], checked, issue: { level: "avertissement", text: `Aucune clé DKIM trouvée parmi ${checked} sélecteurs courants.`, fix: "Cela ne prouve pas qu'il n'y en a pas : un service d'envoi utilise souvent son propre sélecteur. Activez DKIM chez votre service d'e-mail et publiez la clé qu'il fournit." } };
+}
 
 export function analyzeSpf(txts: string[]): { record: string | null; issues: EmailIssue[] } {
   const spfs = txts.filter((t) => /^v=spf1\b/i.test(t));
@@ -35,7 +46,8 @@ export function analyzeDmarc(txts: string[]): { record: string | null; issues: E
   return { record: r, issues };
 }
 
-export function emailScore(spf: { issues: EmailIssue[] }, dmarc: { issues: EmailIssue[] }): number {
+export function emailScore(spf: { issues: EmailIssue[] }, dmarc: { issues: EmailIssue[] }, dkim?: DkimResult): number {
   const pen = (l: EmailIssue[]) => l.reduce((s, i) => s + (i.level === "erreur" ? 30 : i.level === "avertissement" ? 10 : 0), 0);
-  return Math.max(0, 100 - pen(spf.issues) - pen(dmarc.issues));
+  // DKIM non détecté : pénalité légère seulement (sélecteur peut-être personnalisé).
+  return Math.max(0, 100 - pen(spf.issues) - pen(dmarc.issues) - (dkim && dkim.found.length === 0 ? 5 : 0));
 }

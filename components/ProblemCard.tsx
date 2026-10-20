@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Problem } from "@/lib/types";
+import { hasOperationalTool } from "@/lib/tool-keys";
 import { ProblemCover } from "./ProblemCover";
 
 export function ProblemCard({ p }: { p: Problem }) {
@@ -9,7 +10,8 @@ export function ProblemCard({ p }: { p: Problem }) {
       <div className="card-body">
         <div className="card-foot" style={{ paddingTop: 0 }}>
           {p.domains ? <span className="tag">{p.domains.name}</span> : null}
-          {p.format === "tool" ? <span className="tag tag-tool">Outil à tester</span> : null}
+          {/* Le badge reflète l'outil RÉELLEMENT affiché sur la page : même fonction que la fiche et le compteur de l'accueil. */}
+          {hasOperationalTool(p) ? <span className="tag tag-tool">Outil à tester</span> : null}
         </div>
         <h3><Link href={`/problemes/${p.slug}`}>{p.title}</Link></h3>
         <p>{p.hook}</p>

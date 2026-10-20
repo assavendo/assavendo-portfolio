@@ -23,7 +23,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const vid = await visitorId(false);
   let liked = false;
   if (vid && process.env.SUPABASE_SECRET_KEY) { const { data } = await supabaseAdmin().from("product_likes").select("product_id").eq("product_id", p.id).eq("visitor_id", vid).maybeSingle(); liked = !!data; }
-  const ld = { "@context": "https://schema.org", "@type": "Product", name: p.title, description: p.summary, image: p.images.map((i) => i.url), offers: { "@type": "Offer", priceCurrency: "EUR", price: (p.price_cents / 100).toFixed(2), availability: "https://schema.org/InStock", url: `${siteUrl}/boutique/${p.slug}` }, ...(stats.reviews ? { aggregateRating: { "@type": "AggregateRating", ratingValue: stats.rating.toFixed(1), reviewCount: stats.reviews } } : {}) };
+  const ld = { "@context": "https://schema.org", "@type": "Product", name: p.title, description: p.summary, image: p.images.map((i) => i.url), offers: { "@type": "Offer", priceCurrency: "EUR", price: (p.price_cents / 100).toFixed(2), availability: "https://schema.org/InStock", url: `${siteUrl}/boutique/${p.slug}` }, /* Pas d'aggregateRating : les avis ne sont pas des achats vérifiés de façon exploitable par les moteurs de recherche. */ };
   return (
     <div className="section"><div className="wrap">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
@@ -35,10 +35,10 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
         <div>
           <h1 style={{ fontSize: "clamp(1.9rem,3.6vw,2.8rem)" }}>{p.title}</h1>
           <p>{p.summary}</p>
-          {stats.reviews ? <p><span className="stars">★</span> <strong>{stats.rating.toFixed(1)}</strong> <span className="muted">({stats.reviews} avis)</span></p> : null}
+          {stats.reviews ? <p><span className="stars" aria-hidden="true">★</span> <strong>{stats.rating.toFixed(1)}</strong> <span className="muted">({stats.reviews} avis{stats.verifiedReviews ? `, dont ${stats.verifiedReviews} d'acheteurs` : ""})</span></p> : null}
           <p className="price">{p.price_cents ? eur(p.price_cents) : "Gratuit"}</p>
           {sp.paiement === "annule" ? <p className="alert alert-err" role="status">Paiement annulé : aucun montant n'a été prélevé.</p> : null}
-          {p.price_cents >= 50 ? <BuyForm productId={p.id} label={`Acheter · ${eur(p.price_cents)}`} /> : null}
+          {p.price_cents === 0 || p.price_cents >= 50 ? <BuyForm productId={p.id} kind={p.kind} free={p.price_cents === 0} label={p.price_cents === 0 ? "Recevoir gratuitement" : `Acheter · ${eur(p.price_cents)}`} /> : <p className="muted">Ce produit n'est pas vendu en ligne : <a href="/contact">contactez-nous</a>.</p>}
           {p.demo_url ? <p style={{ marginTop: "1rem" }}><a className="btn btn-ghost" href={p.demo_url} target="_blank" rel="noopener noreferrer">Essayer la démonstration</a></p> : null}
           <ActionsBar productId={p.id} slug={p.slug} title={p.title} likes={stats.likes} shares={stats.shares} liked={liked} />
         </div>

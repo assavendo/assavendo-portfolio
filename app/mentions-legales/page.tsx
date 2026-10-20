@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Todo, legal, v } from "@/components/LegalPage";
-export const metadata: Metadata = { title: "Mentions légales", robots: { index: false } };
+export const metadata: Metadata = { title: "Mentions légales", alternates: { canonical: "/mentions-legales" }, robots: { index: false } };
 export default function Page() {
   return <div className="section legal"><div className="wrap" style={{ maxWidth: 780 }}>
     <h1>Mentions légales</h1><Todo />

@@ -1,18 +1,28 @@
 import { NextResponse } from "next/server";
-import { allow } from "@/lib/rate-limit";
+import { allow, clientIp } from "@/lib/rate-limit";
+import { hashIp } from "@/lib/privacy";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-export async function GET(_: Request, { params }: { params: Promise<{ token: string }> }) {
+const noStore = { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex" };
+const text = (msg: string, status: number) => new NextResponse(msg, { status, headers: noStore });
+
+export async function GET(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token) || !(await allow("download", 20, 600))) return new NextResponse("Lien invalide.", { status: 404 });
+  if (!/^[A-Za-z0-9_-]{20,80}$/.test(token) || !(await allow("download", 20, 600))) return text("Lien invalide.", 404);
   const db = supabaseAdmin();
-  const { data: o } = await db.from("orders").select("id, product_id, download_count, status").eq("download_token", token).maybeSingle();
-  if (!o || o.status !== "paid" || o.download_count >= 5) return new NextResponse("Lien expiré ou invalide.", { status: 410 });
-  const { data: d } = await db.from("product_deliverables").select("storage_path, file_name").eq("product_id", o.product_id).maybeSingle();
-  if (!d) return new NextResponse("Aucun fichier associé à cet achat.", { status: 404 });
-  const { data: signed } = await db.storage.from("deliverables").createSignedUrl(d.storage_path, 60, { download: d.file_name });
-  if (!signed) return new NextResponse("Fichier indisponible.", { status: 500 });
-  await db.from("orders").update({ download_count: o.download_count + 1 }).eq("id", o.id);
-  return NextResponse.redirect(signed.signedUrl, 302);
+  // Contrôle des conditions ET incrément du compteur en une seule opération atomique (téléchargements simultanés inclus).
+  const { data, error } = await db.rpc("claim_download", { p_token: token, p_ip_hash: hashIp(await clientIp()), p_user_agent: req.headers.get("user-agent") });
+  if (error) { console.error("[download] claim", error.message); return text("Service momentanément indisponible. Réessayez dans un instant.", 503); }
+  const row = (Array.isArray(data) ? data[0] : data) as { storage_path: string; file_name: string; order_id: string } | null;
+  if (!row) return text("Lien expiré, épuisé ou invalide. Écrivez-nous pour obtenir un nouveau lien.", 410);
+  const { data: signed, error: sErr } = await db.storage.from("deliverables").createSignedUrl(row.storage_path, 60, { download: row.file_name });
+  if (sErr || !signed) {
+    console.error("[download] lien signé", sErr?.message);
+    await db.rpc("release_download", { p_order_id: row.order_id });   // le téléchargement n'a pas eu lieu : on le rend au client
+    return text("Fichier momentanément indisponible. Votre téléchargement n'a pas été décompté.", 503);
+  }
+  const res = NextResponse.redirect(signed.signedUrl, 302);
+  Object.entries(noStore).forEach(([k, v]) => res.headers.set(k, v));
+  return res;
 }

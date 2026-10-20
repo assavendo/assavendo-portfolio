@@ -6,7 +6,7 @@ import { FetchRefused } from "./safe-fetch";
 export const targetSchema = z.object({ target: z.string().trim().min(3).max(300) });
 
 export async function guard(req: Request, action: string) {
-  if (!(await allow(action, 12, 60))) return NextResponse.json({ error: "Trop de tests en peu de temps. Réessayez dans une minute." }, { status: 429 });
+  if (!(await allow(action, 12, 60)) || !(await allow(`${action}-jour`, 80, 86400))) return NextResponse.json({ error: "Trop de tests depuis votre connexion. Réessayez dans quelques minutes." }, { status: 429 });
   const parsed = targetSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Indiquez une adresse valide." }, { status: 400 });
   return parsed.data.target;

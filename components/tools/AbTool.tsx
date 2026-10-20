@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { sampleSize, significance } from "@/lib/tools/abtest";
 import { Num, fmt } from "./shared";
+import { ToolActions } from "./ToolActions";
 
 export default function AbTool() {
   const [base, setBase] = useState(3); const [lift, setLift] = useState(15);
@@ -26,6 +27,7 @@ export default function AbTool() {
             {sig.pValue < 0.05 ? "L'écart est statistiquement significatif au seuil de 5 %, à condition d'avoir atteint la taille d'échantillon prévue et de ne pas avoir arrêté le test au premier écart favorable."
               : "L'écart n'est pas significatif : il peut très bien venir du hasard. Ne déployez pas la variante sur cette seule base ; poursuivez le test jusqu'à la taille d'échantillon calculée."}
           </p>
+          <ToolActions summary={`Test A/B : ${fmt(sig.pA * 100, 2)} % → ${fmt(sig.pB * 100, 2)} %, valeur p ${fmt(sig.pValue, 3)}. Échantillon recommandé : ${Number.isFinite(size) ? fmt(size) : "—"} visiteurs par variante.`} subject={`Mon test A/B est-il fiable ? (p = ${fmt(sig.pValue, 3)})`} cta="Faire relire mon test A/B" />
         </div>
       ) : <p className="muted">Vérifiez que les conversions ne dépassent pas les visiteurs.</p>}
     </div>

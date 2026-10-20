@@ -13,7 +13,7 @@ export default async function Boutique() {
     <div className="section"><div className="wrap">
       <h1 style={{ fontSize: "clamp(2rem,4vw,3rem)" }}>Boutique</h1>
       <p className="muted">Des produits conçus par Assavendo, avec aperçu et essai avant achat lorsque c'est possible.</p>
-      {products.length === 0 ? <div className="panel"><h2 style={{ fontSize: "1.3rem" }}>La boutique ouvre bientôt</h2><p>Les premiers produits sont en préparation. Dites-nous ce qui vous serait utile.</p><Link className="btn btn-primary" href="/contact">Proposer un besoin</Link></div> : (
+      {products.length === 0 ? <div className="empty"><h2 style={{ fontSize: "1.5rem" }}>La boutique ouvre bientôt</h2><p>Nous ne mettons en vente que des produits terminés, testés et livrables. Le premier est en préparation. Dites-nous ce qui vous serait utile.</p><Link className="btn btn-primary" href="/contact?sujet=Id%C3%A9e%20de%20produit">Proposer un besoin</Link></div> : (
         <div className="cards">{products.map((p) => (
           <article className="card" key={p.id}>
             <div className="card-media">{p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt} fill sizes="400px" style={{ objectFit: "cover" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>

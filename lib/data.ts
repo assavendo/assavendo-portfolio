@@ -1,34 +1,51 @@
 import { unstable_cache } from "next/cache";
 import { domains as seedDomains } from "@/content/domains";
 import { problems as seedProblems } from "@/content/problems";
-import { isSupabaseConfigured } from "./env";
+import { allowLocalContent, isSupabaseConfigured } from "./env";
 import { supabaseAdmin, supabasePublic } from "./supabase/server";
 import type { Domain, Problem, Product } from "./types";
 
-const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-function fromSeed(): { domains: Domain[]; problems: Problem[] } {
+/** Levée quand la source de données est injoignable en production : la page d'erreur propre s'affiche, rien n'est inventé. */
+export class DataUnavailable extends Error {
+  constructor(what: string, cause?: unknown) {
+    super(`Données indisponibles (${what})`);
+    this.name = "DataUnavailable";
+    console.error("[data]", what, cause instanceof Error ? cause.message : cause);
+  }
+}
+
+/**
+ * Contenu local : UNIQUEMENT pour le développement, la CI et les aperçus sans Supabase.
+ * Il ne contient que les fiches rédigées (content/problems.ts) ; les brouillons n'y figurent jamais.
+ */
+function fromLocal(): { domains: Domain[]; problems: Problem[] } {
   const domains: Domain[] = seedDomains.map((d) => ({ id: d.slug, slug: d.slug, name: d.name, intro: d.intro, sort: d.sort }));
   const problems: Problem[] = seedProblems.map((p) => ({
     id: p.slug, slug: p.slug, domain_id: p.domain, title: p.title, hook: p.hook, who: p.who, symptom: p.symptom, cost: p.cost, cause: p.cause,
     what_we_do: p.what_we_do, deliverables: p.deliverables, outcome: p.outcome, stack: p.stack, audiences: p.audiences, format: p.format,
     tool_key: p.tool_key ?? null, tool_intro: p.tool_intro ?? "", cover_url: null, cover_alt: "", cover_credit: null, status: "published",
-    featured: !!p.featured, sort: p.sort, published_at: null, updated_at: new Date(0).toISOString(),
+    featured: !!p.featured, sort: p.sort, published_at: null, seo_title: null, seo_description: null, updated_at: new Date(0).toISOString(),
     domains: (({ name, slug }) => ({ name, slug }))(seedDomains.find((d) => d.slug === p.domain)!),
   }));
   return { domains, problems };
 }
 
 export const getDomains = unstable_cache(async (): Promise<Domain[]> => {
-  if (!isSupabaseConfigured) return fromSeed().domains;
+  if (allowLocalContent) return fromLocal().domains;
+  if (!isSupabaseConfigured) throw new DataUnavailable("Supabase non configuré");
   const { data, error } = await supabasePublic().from("domains").select("*").order("sort");
-  return !error && data?.length ? data as Domain[] : fromSeed().domains;
+  if (error) throw new DataUnavailable("domaines", error);
+  return (data ?? []) as Domain[];
 }, ["domains"], { revalidate: 120, tags: ["domains"] });
 
 export const getPublishedProblems = unstable_cache(async (): Promise<Problem[]> => {
-  if (!isSupabaseConfigured) return fromSeed().problems;
+  if (allowLocalContent) return fromLocal().problems;
+  if (!isSupabaseConfigured) throw new DataUnavailable("Supabase non configuré");
   const { data, error } = await supabasePublic().from("problems").select("*, domains(name, slug)").eq("status", "published").order("sort");
-  return !error && data?.length ? data as unknown as Problem[] : fromSeed().problems;
+  if (error) throw new DataUnavailable("problèmes", error);
+  return (data ?? []) as unknown as Problem[];
 }, ["problems"], { revalidate: 120, tags: ["problems"] });
 
 export type Filters = { q?: string; domain?: string; format?: string; audience?: string };
@@ -48,13 +65,14 @@ export async function getProblem(slug: string) { return (await getPublishedProbl
 
 export const getPublishedProducts = unstable_cache(async (): Promise<Product[]> => {
   if (!isSupabaseConfigured) return [];
-  const { data } = await supabasePublic().from("products").select("*").eq("status", "published").order("published_at", { ascending: false });
+  const { data, error } = await supabasePublic().from("products").select("*").eq("status", "published").order("published_at", { ascending: false });
+  if (error) throw new DataUnavailable("produits", error);
   return (data ?? []) as Product[];
 }, ["products"], { revalidate: 60, tags: ["products"] });
 
-export type ProductStats = { likes: number; shares: number; rating: number; reviews: number; comments: { id: string; parent_id: string | null; author_name: string; body: string; is_owner_reply: boolean; created_at: string }[]; reviewList: { id: string; author_name: string; rating: number; body: string; verified_purchase: boolean; created_at: string }[] };
+export type ProductStats = { likes: number; shares: number; rating: number; reviews: number; verifiedReviews: number; comments: { id: string; parent_id: string | null; author_name: string; body: string; is_owner_reply: boolean; created_at: string }[]; reviewList: { id: string; author_name: string; rating: number; body: string; verified_purchase: boolean; created_at: string }[] };
 export async function getProductStats(productId: string): Promise<ProductStats> {
-  const empty: ProductStats = { likes: 0, shares: 0, rating: 0, reviews: 0, comments: [], reviewList: [] };
+  const empty: ProductStats = { likes: 0, shares: 0, rating: 0, reviews: 0, verifiedReviews: 0, comments: [], reviewList: [] };
   if (!isSupabaseConfigured || !process.env.SUPABASE_SECRET_KEY) return empty;
   const db = supabaseAdmin();
   const [likes, shares, reviews, comments] = await Promise.all([
@@ -64,5 +82,8 @@ export async function getProductStats(productId: string): Promise<ProductStats> 
     db.from("product_comments").select("id, parent_id, author_name, body, is_owner_reply, created_at").eq("product_id", productId).eq("status", "approved").order("created_at", { ascending: true }).limit(200),
   ]);
   const list = reviews.data ?? [];
-  return { likes: likes.count ?? 0, shares: shares.count ?? 0, rating: list.length ? list.reduce((s, r) => s + r.rating, 0) / list.length : 0, reviews: list.length, comments: comments.data ?? [], reviewList: list };
+  return {
+    likes: likes.count ?? 0, shares: shares.count ?? 0, rating: list.length ? list.reduce((s, r) => s + r.rating, 0) / list.length : 0,
+    reviews: list.length, verifiedReviews: list.filter((r) => r.verified_purchase).length, comments: comments.data ?? [], reviewList: list,
+  };
 }

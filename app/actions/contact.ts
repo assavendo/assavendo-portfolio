@@ -4,8 +4,12 @@ import { allow, clientIp } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { esc, sendEmail } from "@/lib/email";
+import { formValues } from "@/lib/form";
 
-export type FormState = { ok: boolean; message: string };
+/** `values` : saisies renvoyées au formulaire en cas d'erreur, pour qu'aucune information ne soit perdue. */
+export type FormState = { ok: boolean; message: string; values?: Record<string, string> };
+
+
 const schema = z.object({
   name: z.string().trim().min(2, "Indiquez votre nom.").max(80),
   email: z.string().trim().email("Cette adresse e-mail semble invalide.").max(320),
@@ -17,13 +21,13 @@ const schema = z.object({
 export async function submitContact(_: FormState, form: FormData): Promise<FormState> {
   if (String(form.get("website") ?? "") !== "") return { ok: true, message: "Merci, votre message a bien été envoyé." }; // champ piège
   const parsed = schema.safeParse(Object.fromEntries(form));
-  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Vérifiez le formulaire." };
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Vérifiez le formulaire.", values: formValues(form) };
   const ip = await clientIp();
-  if (!(await allow("contact", 5, 3600))) return { ok: false, message: "Trop de messages envoyés depuis votre connexion. Réessayez plus tard ou écrivez-nous directement par e-mail." };
-  if (!(await verifyTurnstile(String(form.get("cf-turnstile-response") ?? ""), ip))) return { ok: false, message: "La vérification anti-robot a échoué. Rechargez la page et réessayez." };
+  if (!(await allow("contact", 5, 3600))) return { ok: false, message: "Trop de messages envoyés depuis votre connexion. Réessayez plus tard ou écrivez-nous directement par e-mail.", values: formValues(form) };
+  if (!(await verifyTurnstile(String(form.get("cf-turnstile-response") ?? ""), ip))) return { ok: false, message: "La vérification anti-robot a échoué. Réessayez : votre message est conservé.", values: formValues(form) };
   const { name, email, projectType, message } = parsed.data;
   const { error } = await supabaseAdmin().from("contact_messages").insert({ name, email: email.toLowerCase(), project_type: projectType || null, message, consent: true });
-  if (error) return { ok: false, message: "Votre message n'a pas pu être enregistré. Réessayez dans un instant." };
+  if (error) return { ok: false, message: "Votre message n'a pas pu être enregistré. Réessayez dans un instant : votre message est conservé.", values: formValues(form) };
   const to = process.env.CONTACT_TO_EMAIL;
   if (to) await sendEmail({ to, replyTo: email, subject: `Nouvelle demande de ${name}`, html: `<p><strong>${esc(name)}</strong> &lt;${esc(email)}&gt;${projectType ? ` — ${esc(projectType)}` : ""}</p><p style="white-space:pre-wrap">${esc(message)}</p>` });
   await sendEmail({ to: email, subject: "Votre demande a bien été reçue — Assavendo", html: `<p>Bonjour ${esc(name)},</p><p>Nous avons bien reçu votre demande et vous répondrons personnellement sous deux jours ouvrés.</p><p>Assavendo</p>` });

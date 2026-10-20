@@ -2,46 +2,35 @@ import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
+import { isBlockedIp } from "./ip.ts";
 
-/** Vrai si l'adresse appartient à un réseau interne, local ou réservé (protection SSRF). */
-export function isPrivateIp(ip: string): boolean {
-  const v = net.isIP(ip);
-  if (v === 4) {
-    const [a, b, c] = ip.split(".").map(Number);
-    return (
-      a === 0 || a === 10 || a === 127 || a >= 224 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 0 && c === 0) ||
-      (a === 192 && b === 168) ||
-      (a === 198 && (b === 18 || b === 19))
-    );
-  }
-  if (v === 6) {
-    const x = ip.toLowerCase();
-    if (x === "::" || x === "::1") return true;
-    const mapped = x.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateIp(mapped[1]);
-    return /^f[cd]/.test(x) || /^fe[89ab]/.test(x) || x.startsWith("ff");
-  }
-  return true;
-}
+/** Vrai si l'adresse appartient à un réseau interne, local ou réservé (protection SSRF). Voir lib/ip.ts. */
+export const isPrivateIp = isBlockedIp;
 
 export class FetchRefused extends Error {}
 
 export type SafeResponse = { url: string; status: number; headers: Record<string, string>; body: string; truncated: boolean; redirects: string[] };
 
-/** Résolution DNS validée au moment de la connexion (évite le DNS rebinding). */
+/** Résolution DNS validée au moment de la connexion (évite le DNS rebinding). Une seule adresse interne dans la réponse suffit à refuser. */
 const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
   dns.lookup(hostname, { all: true }, (err, addresses) => {
     if (err) return (callback as any)(err);
-    const ok = addresses.filter((a) => !isPrivateIp(a.address));
-    if (!ok.length) return (callback as any)(new FetchRefused("Adresse interne refusée"));
-    if ((options as any)?.all) return (callback as any)(null, ok);
-    (callback as any)(null, ok[0].address, ok[0].family);
+    if (!addresses.length || addresses.some((a) => isBlockedIp(a.address))) return (callback as any)(new FetchRefused("Adresse interne refusée"));
+    if ((options as any)?.all) return (callback as any)(null, addresses);
+    (callback as any)(null, addresses[0].address, addresses[0].family);
   });
 };
+
+/** Résout un nom d'hôte public et refuse tout ce qui mène à une adresse interne. Sert aux outils qui ouvrent eux-mêmes une connexion. */
+export async function resolvePublicHost(hostname: string): Promise<{ address: string; family: number }[]> {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  if (net.isIP(host)) { if (isBlockedIp(host)) throw new FetchRefused("Adresse interne refusée"); return [{ address: host, family: net.isIP(host) }]; }
+  const list = await dns.promises.lookup(host, { all: true });
+  if (!list.length || list.some((a) => isBlockedIp(a.address))) throw new FetchRefused("Adresse interne refusée");
+  return list;
+}
+
+const BLOCKED_SUFFIXES = [".local", ".localhost", ".internal", ".home.arpa", ".lan", ".intranet", ".corp", ".private"];
 
 export function parseTarget(input: string): URL {
   let raw = input.trim();
@@ -51,17 +40,22 @@ export function parseTarget(input: string): URL {
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new FetchRefused("Seuls http et https sont acceptés");
   if (url.username || url.password) throw new FetchRefused("Identifiants dans l'adresse refusés");
   if (url.port && url.port !== "80" && url.port !== "443") throw new FetchRefused("Port non autorisé");
-  const host = url.hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal") || !host.includes(".") && !net.isIP(host.replace(/^\[|\]$/g, ""))) throw new FetchRefused("Nom d'hôte non public");
-  if (net.isIP(host.replace(/^\[|\]$/g, "")) && isPrivateIp(host.replace(/^\[|\]$/g, ""))) throw new FetchRefused("Adresse interne refusée");
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  const bare = host.replace(/^\[|\]$/g, "");
+  if (net.isIP(bare)) {
+    if (isBlockedIp(bare)) throw new FetchRefused("Adresse interne refusée");
+  } else if (host === "localhost" || BLOCKED_SUFFIXES.some((s) => host.endsWith(s)) || !host.includes(".")) {
+    throw new FetchRefused("Nom d'hôte non public");
+  }
   return url;
 }
 
-function once(url: URL, method: "GET" | "HEAD", maxBytes: number, timeoutMs: number): Promise<{ status: number; headers: Record<string, string>; body: string; truncated: boolean }> {
+type Once = { status: number; headers: Record<string, string>; body: string; truncated: boolean };
+function once(url: URL, method: "GET" | "HEAD", maxBytes: number, idleMs: number, signal: AbortSignal): Promise<Once> {
   return new Promise((resolve, reject) => {
     const lib = url.protocol === "https:" ? https : http;
     const req = lib.request(url, {
-      method, lookup: guardedLookup, timeout: timeoutMs,
+      method, lookup: guardedLookup, timeout: idleMs, signal, maxHeaderSize: 16_384,
       headers: { "user-agent": "AssavendoBot/1.0 (+https://assavendo.fr/bot)", accept: "text/html,*/*;q=0.8", "accept-encoding": "identity" },
     }, (res) => {
       const chunks: Buffer[] = []; let size = 0; let truncated = false;
@@ -76,19 +70,31 @@ function once(url: URL, method: "GET" | "HEAD", maxBytes: number, timeoutMs: num
       const done = () => resolve({ status: res.statusCode ?? 0, headers, body: Buffer.concat(chunks).toString("utf8"), truncated });
       res.on("end", done); res.on("close", done);
     });
+    // Contrôle supplémentaire : l'adresse réellement connectée doit elle aussi être publique (défense en profondeur).
+    req.on("socket", (socket) => {
+      const check = () => { if (socket.remoteAddress && isBlockedIp(socket.remoteAddress)) req.destroy(new FetchRefused("Adresse interne refusée")); };
+      if (socket.connecting) socket.once("connect", check); else check();
+    });
     req.on("timeout", () => req.destroy(new FetchRefused("Délai dépassé")));
-    req.on("error", (e) => reject(e));
+    req.on("error", (e) => reject(signal.aborted ? new FetchRefused("Délai dépassé") : e));
     req.end();
   });
 }
 
-/** Lecture publique d'une page : redirections revalidées, taille et durée plafonnées. */
-export async function safeFetch(input: string, opts: { method?: "GET" | "HEAD"; maxBytes?: number; timeoutMs?: number; maxRedirects?: number } = {}): Promise<SafeResponse> {
-  const { method = "GET", maxBytes = 1_500_000, timeoutMs = 8000, maxRedirects = 4 } = opts;
+export type SafeFetchOptions = { method?: "GET" | "HEAD"; maxBytes?: number; timeoutMs?: number; totalTimeoutMs?: number; maxRedirects?: number };
+
+/**
+ * Lecture publique d'une page : adresses validées à la connexion ET à chaque redirection, taille plafonnée,
+ * délai d'inactivité (timeoutMs) ET délai total (totalTimeoutMs). Un serveur qui refuse HEAD est réinterrogé en GET (en-têtes seulement).
+ */
+export async function safeFetch(input: string, opts: SafeFetchOptions = {}): Promise<SafeResponse> {
+  const { method = "GET", maxBytes = 1_500_000, timeoutMs = 8000, totalTimeoutMs = 15_000, maxRedirects = 4 } = opts;
+  const signal = AbortSignal.timeout(totalTimeoutMs);
   let url = parseTarget(input);
   const redirects: string[] = [];
   for (let i = 0; i <= maxRedirects; i++) {
-    const r = await once(url, method, maxBytes, timeoutMs);
+    let r = await once(url, method, maxBytes, timeoutMs, signal);
+    if (method === "HEAD" && [403, 405, 501].includes(r.status)) r = { ...(await once(url, "GET", 2048, timeoutMs, signal)), body: "", truncated: false };
     const loc = r.headers["location"];
     if (r.status >= 300 && r.status < 400 && loc) {
       redirects.push(url.toString());
