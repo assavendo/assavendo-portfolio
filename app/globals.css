@@ -179,7 +179,7 @@ a.domain-row:hover { background: var(--surface); color: var(--ink); text-decorat
 .domain-row strong { font: 600 1.2rem var(--display); letter-spacing: -.01em; }
 .domain-row span { color: var(--ink-3); font-size: .93rem; white-space: nowrap; }
 .domain-row p { grid-column: 2 / -1; margin: 0; color: var(--ink-2); font-size: .97rem; }
-.domain-row.soon { opacity: .72; }
+.domain-row.soon { border-style: dashed; background: transparent; }
 
 /* ---------- cartes ---------- */
 .cards { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); }
