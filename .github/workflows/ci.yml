@@ -20,7 +20,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run check            # le seed versionné correspond au contenu, sans fiche invalide
-      - name: Audit des dépendances (informatif : ne bloque pas, à examiner)
+      - name: Audit des dépendances (informatif, non bloquant)
         continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
       - run: npm run build
