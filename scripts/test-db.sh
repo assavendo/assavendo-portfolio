@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | tail -1)}"
 DIR="$(mktemp -d)"; chown postgres "$DIR" 2>/dev/null || true
 RUN() { if [ "$(id -u)" = 0 ]; then su postgres -s /bin/bash -c "$*"; else bash -c "$*"; fi; }
-RUN "$PGBIN/initdb -D $DIR/data -A trust >/dev/null"
+RUN "$PGBIN/initdb -D $DIR/data -U postgres -A trust >/dev/null"
 RUN "$PGBIN/pg_ctl -D $DIR/data -o '-p 54399 -k $DIR -c listen_addresses=' -w -l $DIR/log start >/dev/null"
 trap 'RUN "$PGBIN/pg_ctl -D $DIR/data -m immediate stop >/dev/null" || true' EXIT
 PSQL="psql -X -q -o /dev/null -v ON_ERROR_STOP=1 -h $DIR -p 54399 -U postgres -d postgres"

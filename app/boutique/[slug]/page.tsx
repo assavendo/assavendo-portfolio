@@ -6,7 +6,7 @@ import { visitorId } from "@/lib/visitor";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { eur } from "@/lib/types";
 import { siteUrl } from "@/lib/env";
-import { ActionsBar, CommentForm, Comments, ReviewForm, Reviews } from "@/components/ProductSocial";
+import { ActionsBar, Comments, ReviewForm, Reviews } from "@/components/ProductSocial";
 import { BuyForm } from "@/components/BuyForm";
 
 export const dynamic = "force-dynamic";

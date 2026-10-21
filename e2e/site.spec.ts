@@ -6,7 +6,7 @@ const pages = ["/", "/problemes", "/problemes/site-invisible-sur-google", "/offr
 for (const path of pages) {
   test(`accessibilité (axe) : ${path}`, async ({ page }) => {
     await page.goto(path);
-    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+    const results = await new AxeBuilder({ page: page as never }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
     expect(results.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
   });
 }
