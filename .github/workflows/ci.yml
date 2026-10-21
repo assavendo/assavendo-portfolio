@@ -2,16 +2,50 @@ name: CI
 on:
   push: { branches: [main] }
   pull_request:
+permissions: { contents: read }
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env: { NEXT_PUBLIC_SITE_URL: "https://example.com" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - run: npm ci
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run check            # le seed versionné correspond au contenu, sans fiche invalide
+      - name: Audit des dépendances (informatif, non bloquant)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run build
-        env:
-          NEXT_PUBLIC_SITE_URL: https://example.com
+      - name: Aucune adresse localhost dans les pages générées
+        run: "! grep -rIl 'localhost:3000' .next/server/app --include='*.html' --include='*.xml' --include='*.txt' --include='*.rsc'"
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migrations, seed, RLS, concurrence et retours arrière sur PostgreSQL jetable
+        run: PGBIN=$(ls -d /usr/lib/postgresql/*/bin | tail -1) bash scripts/test-db.sh
+
+  e2e:
+    needs: verify
+    runs-on: ubuntu-latest
+    env: { NEXT_PUBLIC_SITE_URL: "https://example.com" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: test-results }

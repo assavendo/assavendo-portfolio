@@ -1,6 +1,8 @@
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 export { esc };
 
+export const isEmailConfigured = () => Boolean(process.env.RESEND_API_KEY && process.env.CONTACT_FROM_EMAIL);
+
 export async function sendEmail(opts: { to: string; subject: string; html: string; replyTo?: string }): Promise<boolean> {
   const key = process.env.RESEND_API_KEY; const from = process.env.CONTACT_FROM_EMAIL;
   if (!key || !from) return false;
@@ -12,4 +14,10 @@ export async function sendEmail(opts: { to: string; subject: string; html: strin
     });
     return res.ok;
   } catch { return false; }
+}
+
+/** Alerte à l'exploitant (paiement à vérifier, livraison en échec…). Sans effet si l'e-mail n'est pas configuré. */
+export async function notifyOwner(subject: string, html: string): Promise<void> {
+  const to = process.env.CONTACT_TO_EMAIL;
+  if (to) await sendEmail({ to, subject: `[Assavendo] ${subject}`, html });
 }

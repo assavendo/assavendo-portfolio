@@ -12,6 +12,7 @@ const tools: Record<ToolKey, React.ComponentType> = {
   abtest: dynamic(() => import("./tools/AbTool"), { loading }),
   "password-leak": dynamic(() => import("./tools/PasswordLeakTool"), { loading }),
   "image-compress": dynamic(() => import("./tools/ImageCompressTool"), { loading }),
+  pagespeed: dynamic(() => import("./tools/PagespeedTool"), { loading }),
 };
 export function ToolRunner({ toolKey }: { toolKey: string }) {
   const T = (tools as Record<string, React.ComponentType>)[toolKey];

@@ -26,7 +26,7 @@ export function ImagePicker({ onPick }: { onPick: (i: Img) => void }) {
     setBusy(false);
   }
   return (
-    <div className="panel" style={{ background: "#fafbfc" }}>
+    <div className="panel" style={{ background: "var(--surface-2)" }}>
       <div className="tool-form">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher une photo (Unsplash)…" aria-label="Rechercher une photo" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); search(); } }} />
         <button type="button" className="btn btn-ghost btn-sm" onClick={search} disabled={busy || !q.trim()}>Chercher</button>
@@ -89,7 +89,7 @@ export function DeliverableField({ initialName }: { initialName?: string }) {
   return (
     <div className="full panel" style={{ margin: 0 }}>
       <strong>Fichier livré après paiement</strong>
-      <p className="muted small">Stocké dans un espace privé. Le client reçoit un lien temporaire (5 téléchargements maximum).</p>
+      <p className="muted small">Stocké dans un espace privé. Le client reçoit un lien personnel, limité en nombre de téléchargements et en durée (30 jours par défaut).</p>
       <input type="file" disabled={busy} onChange={(e) => e.target.files?.[0] && up(e.target.files[0])} />
       {name ? <p className="small">Fichier : <strong>{name}</strong>{path ? " (nouveau, à enregistrer)" : ""}</p> : null}
       {msg ? <p className="alert alert-err" role="alert">{msg}</p> : null}

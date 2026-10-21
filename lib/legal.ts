@@ -5,3 +5,6 @@ export const legal = {
   host: process.env.LEGAL_HOST ?? "Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, États-Unis",
 };
 export const missing = Object.entries({ "Dénomination": legal.name, "Forme juridique": legal.form, "SIRET": legal.siret, "Adresse": legal.address, "E-mail": legal.email, "Directeur de la publication": legal.director }).filter(([, v]) => !v).map(([k]) => k);
+
+/** Version des conditions de vente acceptées : enregistrée avec chaque commande. À incrémenter à chaque modification du texte. */
+export const TERMS_VERSION = "2026-10-20";

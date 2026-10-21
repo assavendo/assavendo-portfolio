@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Todo, legal, v } from "@/components/LegalPage";
-export const metadata: Metadata = { title: "Politique de confidentialité", robots: { index: false } };
+export const metadata: Metadata = { title: "Politique de confidentialité", alternates: { canonical: "/confidentialite" }, robots: { index: false } };
 export default function Page() {
   return <div className="section legal"><div className="wrap" style={{ maxWidth: 780 }}>
     <h1>Politique de confidentialité</h1><Todo />

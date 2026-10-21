@@ -1,11 +1,37 @@
 import { requireAdmin } from "@/lib/admin";
 import { eur } from "@/lib/types";
+import { renewDownload, resolveOrderReview, revokeDownload } from "@/app/actions/admin";
+
+type Row = { id: string; customer_email: string; amount_cents: number; status: string; created_at: string; paid_at: string | null; download_count: number; download_max: number; expires_at: string | null; download_token: string | null; email_sent_at: string | null; needs_review: boolean; review_note: string | null; consent_digital_waiver: boolean; products: { title: string } | null };
+const label: Record<string, string> = { pending: "En attente", paid: "Payée", canceled: "Annulée", refunded: "Remboursée" };
+const day = (s: string | null) => (s ? new Date(s).toLocaleDateString("fr-FR") : "—");
+
 export default async function Commandes() {
   const { sb } = await requireAdmin();
-  const { data } = await sb.from("orders").select("id, customer_email, amount_cents, status, created_at, paid_at, download_count, products(title)").order("created_at", { ascending: false }).limit(100);
-  const label: Record<string, string> = { pending: "En attente", paid: "Payée", canceled: "Annulée", refunded: "Remboursée" };
+  const { data, error } = await sb.from("orders")
+    .select("id, customer_email, amount_cents, status, created_at, paid_at, download_count, download_max, expires_at, download_token, email_sent_at, needs_review, review_note, consent_digital_waiver, products(title)")
+    .order("created_at", { ascending: false }).limit(200);
+  if (error) return <div><h1 style={{ fontSize: "1.8rem" }}>Commandes</h1><p className="alert alert-err" role="alert">Lecture impossible : {error.message}</p></div>;
+  const rows = (data ?? []) as unknown as Row[];
+  const hourAgo = Date.now() - 36e5;
+  // Rapprochement : ce qui demande une action humaine
+  const toCheck = rows.filter((o) => o.needs_review || (o.status === "paid" && !o.email_sent_at) || (o.status === "pending" && new Date(o.created_at).getTime() < hourAgo));
   return <div><h1 style={{ fontSize: "1.8rem" }}>Commandes</h1>
-    {(data ?? []).length === 0 ? <p className="panel">Aucune commande.</p> : <div className="table-scroll"><table className="tbl"><thead><tr><th>Date</th><th>Produit</th><th>Client</th><th>Montant</th><th>Statut</th><th>Téléchargements</th></tr></thead><tbody>
-      {(data as any[]).map((o) => <tr key={o.id}><td>{new Date(o.created_at).toLocaleDateString("fr-FR")}</td><td>{o.products?.title}</td><td>{o.customer_email}</td><td>{eur(o.amount_cents)}</td><td>{label[o.status]}</td><td>{o.download_count}/5</td></tr>)}</tbody></table></div>}
-    <p className="muted small" style={{ marginTop: "1rem" }}>Les remboursements se font dans le tableau de bord Stripe ; le statut se met à jour automatiquement.</p></div>;
+    <section className="panel" aria-labelledby="a-verifier" style={{ marginBottom: "1.5rem" }}>
+      <h2 id="a-verifier" style={{ fontSize: "1.2rem" }}>À vérifier ({toCheck.length})</h2>
+      <p className="muted small">Paiements dont la confirmation n'a pas été envoyée, montants inattendus, commandes restées en attente depuis plus d'une heure. Comparez avec le tableau de bord Stripe.</p>
+      {toCheck.length === 0 ? <p>Rien à traiter : chaque paiement a sa livraison confirmée.</p> : <ul className="plain">{toCheck.map((o) => (
+        <li key={o.id} style={{ padding: ".6rem 0", borderTop: "1px solid var(--line, #dde3ea)" }}>
+          <strong>{o.products?.title ?? "Produit supprimé"}</strong> — {o.customer_email} — {eur(o.amount_cents)} — {label[o.status]} ({day(o.created_at)})
+          <br /><span className="muted small">{o.review_note ?? (o.status === "pending" ? "Paiement jamais confirmé : session abandonnée ou événement Stripe perdu." : "Confirmation par e-mail non envoyée.")}</span>
+          <div style={{ display: "flex", gap: ".5rem", marginTop: ".4rem", flexWrap: "wrap" }}>
+            {o.status === "paid" ? <form action={renewDownload}><input type="hidden" name="id" value={o.id} /><button className="btn btn-ghost btn-sm">Émettre un nouveau lien</button></form> : null}
+            {o.needs_review ? <form action={resolveOrderReview}><input type="hidden" name="id" value={o.id} /><button className="btn btn-ghost btn-sm">Marquer comme traité</button></form> : null}
+          </div>
+        </li>))}</ul>}
+    </section>
+    {rows.length === 0 ? <p className="panel">Aucune commande.</p> : <div className="table-scroll"><table className="tbl"><thead><tr><th>Date</th><th>Produit</th><th>Client</th><th>Montant</th><th>Statut</th><th>Téléchargements</th><th>Expire</th><th>Lien</th></tr></thead><tbody>
+      {rows.map((o) => <tr key={o.id}><td>{day(o.created_at)}</td><td>{o.products?.title}</td><td>{o.customer_email}</td><td>{eur(o.amount_cents)}</td><td>{label[o.status]}</td><td>{o.download_count}/{o.download_max}</td><td>{day(o.expires_at)}</td>
+        <td>{o.download_token ? <form action={revokeDownload}><input type="hidden" name="id" value={o.id} /><button className="btn btn-ghost btn-sm">Révoquer</button></form> : "—"}</td></tr>)}</tbody></table></div>}
+    <p className="muted small" style={{ marginTop: "1rem" }}>Les remboursements se font dans le tableau de bord Stripe ; le statut se met à jour automatiquement et le lien est désactivé.</p></div>;
 }

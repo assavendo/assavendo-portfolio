@@ -1,6 +1,6 @@
 "use client";
 import { useActionState, useState, useTransition } from "react";
-import Script from "next/script";
+import { Turnstile } from "./Turnstile";
 import { addComment, addReview, toggleLike, trackShare } from "@/app/actions/social";
 import type { FormState } from "@/app/actions/contact";
 import type { ProductStats } from "@/lib/data";
@@ -33,22 +33,18 @@ export function ActionsBar({ productId, slug, title, likes, shares, liked }: { p
   );
 }
 
-function Turnstile() {
-  const site = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-  return site ? <><Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="lazyOnload" /><div className="cf-turnstile" data-sitekey={site} /></> : null;
-}
-
 export function ReviewForm({ productId }: { productId: string }) {
   const [state, action, pending] = useActionState(addReview, init);
+  const v = state.values ?? {};
   if (state.ok) return <p className="alert alert-ok" role="status">{state.message}</p>;
   return (
     <form action={action} className="form-grid">
       <input type="hidden" name="productId" value={productId} />
-      <label className="field">Votre nom<input className="input" name="name" required /></label>
-      <label className="field">Note<select className="input" name="rating" defaultValue="" required><option value="" disabled>Choisir…</option><option value="5">5 — Excellent</option><option value="4">4 — Très bien</option><option value="3">3 — Correct</option><option value="2">2 — Décevant</option><option value="1">1 — Mauvais</option></select></label>
-      <label className="field full">Votre avis<textarea className="input" name="body" required minLength={10} /></label>
+      <label className="field">Votre nom<input className="input" name="name" required defaultValue={v.name} /></label>
+      <label className="field">Note<select className="input" name="rating" defaultValue={v.rating ?? ""} required><option value="" disabled>Choisir…</option><option value="5">5 — Excellent</option><option value="4">4 — Très bien</option><option value="3">3 — Correct</option><option value="2">2 — Décevant</option><option value="1">1 — Mauvais</option></select></label>
+      <label className="field full">Votre avis<textarea className="input" name="body" required minLength={10} defaultValue={v.body} /></label>
       <input className="hp" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" />
-      <div className="full"><Turnstile /></div>
+      <div className="full"><Turnstile resetKey={state} /></div>
       <div className="full"><button className="btn btn-primary" disabled={pending}>{pending ? "Envoi…" : "Publier mon avis"}</button>{state.message ? <p className="alert alert-err" role="alert" style={{ marginTop: ".8rem" }}>{state.message}</p> : null}<p className="muted small">Les avis sont relus avant publication. Un seul avis par visiteur.</p></div>
     </form>
   );
@@ -56,14 +52,15 @@ export function ReviewForm({ productId }: { productId: string }) {
 
 export function CommentForm({ productId, slug, parentId }: { productId: string; slug: string; parentId?: string }) {
   const [state, action, pending] = useActionState(addComment, init);
+  const v = state.values ?? {};
   if (state.ok) return <p className="alert alert-ok" role="status">{state.message}</p>;
   return (
     <form action={action} className="form-grid">
       <input type="hidden" name="productId" value={productId} /><input type="hidden" name="slug" value={slug} />{parentId ? <input type="hidden" name="parentId" value={parentId} /> : null}
-      <label className="field">Votre nom<input className="input" name="name" required /></label>
-      <label className="field full">{parentId ? "Votre réponse" : "Votre commentaire"}<textarea className="input" name="body" required minLength={3} style={{ minHeight: 90 }} /></label>
+      <label className="field">Votre nom<input className="input" name="name" required defaultValue={v.name} /></label>
+      <label className="field full">{parentId ? "Votre réponse" : "Votre commentaire"}<textarea className="input" name="body" required minLength={3} defaultValue={v.body} style={{ minHeight: 90 }} /></label>
       <input className="hp" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" />
-      <div className="full"><Turnstile /></div>
+      <div className="full"><Turnstile resetKey={state} /></div>
       <div className="full"><button className="btn btn-primary btn-sm" disabled={pending}>{pending ? "Envoi…" : "Publier"}</button>{state.message ? <p className="alert alert-err" role="alert" style={{ marginTop: ".8rem" }}>{state.message}</p> : null}</div>
     </form>
   );

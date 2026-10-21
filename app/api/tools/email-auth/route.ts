@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { allow } from "@/lib/rate-limit";
-import { analyzeDmarc, analyzeSpf, emailScore } from "@/lib/tools/email-auth";
+import { DKIM_SELECTORS, analyzeDkim, analyzeDmarc, analyzeSpf, emailScore } from "@/lib/tools/email-auth";
 
 export const runtime = "nodejs";
 const schema = z.object({ target: z.string().trim().toLowerCase().regex(/^(?!-)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})*\.[a-z]{2,24}$/, "Saisissez un nom de domaine, par exemple exemple.fr") });
@@ -18,8 +18,13 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Domaine invalide." }, { status: 400 });
   try {
-    const [root, dmarc] = await Promise.all([txt(parsed.data.target), txt(`_dmarc.${parsed.data.target}`)]);
+    const d = parsed.data.target;
+    const [root, dmarc, dkimRaw] = await Promise.all([
+      txt(d), txt(`_dmarc.${d}`),
+      Promise.all(DKIM_SELECTORS.map(async (selector) => ({ selector, records: await txt(`${selector}._domainkey.${d}`).catch(() => [] as string[]) }))),
+    ]);
     const spf = analyzeSpf(root); const dm = analyzeDmarc(dmarc);
-    return NextResponse.json({ domain: parsed.data.target, spf, dmarc: dm, score: emailScore(spf, dm) });
+    const dkim = analyzeDkim(dkimRaw.flatMap((r) => r.records.map((record) => ({ selector: r.selector, record: record.slice(0, 120) }))), DKIM_SELECTORS.length);
+    return NextResponse.json({ domain: d, spf, dmarc: dm, dkim, score: emailScore(spf, dm, dkim) });
   } catch { return NextResponse.json({ error: "La résolution DNS a échoué. Réessayez dans un instant." }, { status: 502 }); }
 }

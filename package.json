@@ -8,7 +8,12 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
-    "seed:problems": "node --experimental-strip-types scripts/generate-seed.ts"
+    "seed:problems": "node --experimental-strip-types scripts/generate-seed.ts",
+    "lint": "eslint .",
+    "check": "node --experimental-strip-types scripts/generate-seed.ts --check",
+    "test:db": "bash scripts/test-db.sh",
+    "e2e": "playwright test",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run check && npm run build"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "5.3.0",
@@ -22,9 +27,20 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.1",
+    "@eslint/eslintrc": "3.2.0",
+    "@playwright/test": "1.55.0",
     "@types/node": "25.9.9",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "eslint": "9.17.0",
+    "eslint-config-next": "15.5.27",
     "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "playwright-core": "1.55.0"
   }
 }
