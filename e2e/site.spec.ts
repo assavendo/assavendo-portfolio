@@ -7,7 +7,7 @@ for (const path of pages) {
   test(`accessibilité (axe) : ${path}`, async ({ page }) => {
     await page.goto(path);
     const results = await new AxeBuilder({ page: page as never }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
-    expect(results.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ') + ' => ' + (n.any[0]?.message ?? '')).join(' | ')}`)).toEqual([]);
   });
 }
 
@@ -50,7 +50,7 @@ test("formulaire de contact : la saisie est conservée après une erreur", async
   await page.getByLabel("Votre besoin").fill("Mon site est très lent depuis une semaine.");
   await page.getByLabel(/J'accepte que mes informations/).check();
   await page.getByRole("button", { name: "Envoyer ma demande" }).click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.locator("p.alert-err")).toBeVisible();
   await expect(page.getByLabel("Nom", { exact: true })).toHaveValue("Awa Test");
   await expect(page.getByLabel("Votre besoin")).toHaveValue("Mon site est très lent depuis une semaine.");
 });
