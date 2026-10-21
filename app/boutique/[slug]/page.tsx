@@ -29,8 +29,8 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <div className="p-hero" style={{ alignItems: "start" }}>
         <div className="gallery">
-          <div className="main">{p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt} fill sizes="(max-width: 900px) 100vw, 560px" priority style={{ objectFit: "cover" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>
-          {p.images.length > 1 ? <div className="thumbs">{p.images.slice(1, 6).map((i) => <Image key={i.url} src={i.url} alt={i.alt} width={76} height={58} />)}</div> : null}
+          <div className="main">{p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt || p.title} fill sizes="(max-width: 900px) 100vw, 560px" priority unoptimized style={{ objectFit: "contain", objectPosition: "center" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>
+          {p.images.length > 1 ? <div className="thumbs">{p.images.slice(1, 6).map((i) => <Image key={i.url} src={i.url} alt={i.alt || p.title} width={76} height={43} unoptimized style={{ objectFit: "contain" }} />)}</div> : null}
         </div>
         <div>
           <h1 style={{ fontSize: "clamp(1.9rem,3.6vw,2.8rem)" }}>{p.title}</h1>
