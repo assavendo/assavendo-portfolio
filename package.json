@@ -9,8 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "seed:problems": "node --experimental-strip-types scripts/generate-seed.ts",
+    "seed:categories": "node --experimental-strip-types scripts/generate-taxonomy.ts",
     "lint": "eslint .",
-    "check": "node --experimental-strip-types scripts/generate-seed.ts --check",
+    "check": "node --experimental-strip-types scripts/generate-seed.ts --check && node --experimental-strip-types scripts/generate-taxonomy.ts --check",
     "test:db": "bash scripts/test-db.sh",
     "e2e": "playwright test",
     "verify": "npm run lint && npm run typecheck && npm test && npm run check && npm run build"
