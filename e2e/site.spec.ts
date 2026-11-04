@@ -73,8 +73,9 @@ test("la boutique est l'accueil et les services restent accessibles par le menu"
   await expect(page).toHaveURL(/\/problemes$/);
 });
 
-test("recherche : un terme sans résultat affiche un état vide honnête, une catégorie inconnue donne 404", async ({ page }) => {
+test("recherche : un terme sans résultat affiche un état vide honnête, une catégorie inconnue affiche « Page introuvable »", async ({ page }) => {
   await page.goto("/boutique?q=zzzzqqq");
   await expect(page.locator("p.result-count")).toContainText("0 produit");
-  expect((await page.goto("/categorie/inexistante"))?.status()).toBe(404);
+  await page.goto("/categorie/inexistante");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page introuvable");
 });
