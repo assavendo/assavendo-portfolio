@@ -11,6 +11,8 @@ import { slugProblem, validatePublishable } from "@/lib/content-rules";
 import { isAllowedImageUrl } from "@/lib/images";
 import { allow } from "@/lib/rate-limit";
 import { formValues } from "@/lib/form";
+import { esc, sendEmail } from "@/lib/email";
+import { siteUrl } from "@/lib/env";
 
 export type AdminState = { error?: string; ok?: string; values?: Record<string, string> };
 
@@ -228,16 +230,33 @@ const orderId = (form: FormData) => z.string().uuid().parse(form.get("id"));
 /** Désactive immédiatement le lien de téléchargement d'une commande. */
 export async function revokeDownload(form: FormData) {
   const { sb } = await requireAdmin();
-  const { error } = await sb.from("orders").update({ download_token: null }).eq("id", orderId(form));
+  const id = orderId(form);
+  const { error } = await sb.from("orders").update({ download_token: null }).eq("id", id);
   if (error) throw new Error("Révocation impossible : " + error.message);
+  const { error: ie } = await sb.from("order_items").update({ download_token: null }).eq("order_id", id);
+  if (ie) throw new Error("Révocation impossible : " + ie.message);
   revalidatePath("/admin/commandes");
 }
 /** Émet un nouveau lien (30 jours, 5 téléchargements) pour une commande payée : l'ancien lien cesse de fonctionner. */
 export async function renewDownload(form: FormData) {
   const { sb } = await requireAdmin();
-  const token = randomBytes(32).toString("hex");
-  const { error } = await sb.from("orders").update({ download_token: token, expires_at: new Date(Date.now() + 30 * 864e5).toISOString(), download_max: 5 }).eq("id", orderId(form)).eq("status", "paid");
-  if (error) throw new Error("Renouvellement impossible : " + error.message);
+  const id = orderId(form);
+  const expires_at = new Date(Date.now() + 30 * 864e5).toISOString();
+  const { data: ord } = await sb.from("orders").select("product_id").eq("id", id).eq("status", "paid").maybeSingle();
+  if (!ord) throw new Error("Commande payée introuvable.");
+  if (ord.product_id) {
+    const { error } = await sb.from("orders").update({ download_token: randomBytes(32).toString("hex"), expires_at, download_max: 5 }).eq("id", id).eq("status", "paid");
+    if (error) throw new Error("Renouvellement impossible : " + error.message);
+  } else {
+    // commande à lignes : un nouveau lien par fichier numérique (compteur remis à zéro, anciens liens invalidés)
+    const { data: items } = await sb.from("order_items").select("id, product_id").eq("order_id", id).eq("kind", "digital");
+    for (const it of items ?? []) {
+      const { data: has } = await sb.from("product_deliverables").select("product_id").eq("product_id", it.product_id).maybeSingle();
+      if (!has) continue;
+      const { error } = await sb.from("order_items").update({ download_token: randomBytes(32).toString("hex"), expires_at, download_max: 5, download_count: 0 }).eq("id", it.id);
+      if (error) throw new Error("Renouvellement impossible : " + error.message);
+    }
+  }
   revalidatePath("/admin/commandes");
 }
 /** Marque une alerte comme traitée (après vérification dans Stripe). */
@@ -245,5 +264,24 @@ export async function resolveOrderReview(form: FormData) {
   const { sb } = await requireAdmin();
   const { error } = await sb.from("orders").update({ needs_review: false }).eq("id", orderId(form));
   if (error) throw new Error("Mise à jour impossible : " + error.message);
+  revalidatePath("/admin/commandes");
+}
+
+/** Avancement d'une commande physique : préparation, expédition (avec suivi), livraison. Le client est prévenu à l'expédition. */
+export async function updateFulfilment(form: FormData) {
+  const { sb } = await requireAdmin();
+  const parsed = z.object({
+    id: z.string().uuid(), fulfilment: z.enum(["to_prepare", "preparing", "shipped", "delivered"]),
+    tracking_number: z.string().trim().max(80).optional(), tracking_url: z.string().trim().url().startsWith("https://").optional().or(z.literal("")),
+  }).safeParse(Object.fromEntries(form));
+  if (!parsed.success) throw new Error("Suivi invalide : le lien de suivi doit commencer par https://.");
+  const d = parsed.data;
+  const { data: cur } = await sb.from("orders").select("fulfilment, status, customer_email, order_number, access_token").eq("id", d.id).maybeSingle();
+  if (!cur || cur.status !== "paid") throw new Error("Seule une commande payée peut être expédiée.");
+  const { error } = await sb.from("orders").update({ fulfilment: d.fulfilment, tracking_number: d.tracking_number || null, tracking_url: d.tracking_url || null }).eq("id", d.id);
+  if (error) throw new Error("Mise à jour impossible : " + error.message);
+  if (d.fulfilment === "shipped" && cur.fulfilment !== "shipped") {
+    await sendEmail({ to: cur.customer_email, subject: `Votre commande ${cur.order_number} est expédiée`, html: `<p>Bonne nouvelle : votre commande <strong>${esc(cur.order_number ?? "")}</strong> est expédiée.</p>${d.tracking_url ? `<p>Suivre le colis : <a href="${esc(d.tracking_url)}">${esc(d.tracking_number || d.tracking_url)}</a></p>` : d.tracking_number ? `<p>Numéro de suivi : ${esc(d.tracking_number)}</p>` : ""}<p>Détail de la commande : <a href="${siteUrl}/commande/${cur.access_token}">${siteUrl}/commande/${cur.access_token}</a></p><p>Assavendo</p>` });
+  }
   revalidatePath("/admin/commandes");
 }
