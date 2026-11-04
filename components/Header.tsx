@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { CartLink } from "./CartLink";
 
 export type NavFamily = { slug: string; name: string };
 const services = [
@@ -50,6 +51,8 @@ export function Header({ families }: { families: NavFamily[] }) {
             <div className="drop-panel">{services.map((s) => <Link key={s.href} href={s.href}>{s.label}</Link>)}</div>
           </details>
           <Link href="/aide" aria-current={cur("/aide")}>Aide</Link>
+          <Link href="/compte" aria-current={cur("/compte")}>Mon compte</Link>
+          <CartLink />
         </nav>
       </div>
     </header>

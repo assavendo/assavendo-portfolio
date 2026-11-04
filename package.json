@@ -10,7 +10,7 @@
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "seed:problems": "node --experimental-strip-types scripts/generate-seed.ts",
     "seed:categories": "node --experimental-strip-types scripts/generate-taxonomy.ts",
-    "lint": "eslint .",
+    "lint": "node scripts/lint-annotate.mjs",
     "check": "node --experimental-strip-types scripts/generate-seed.ts --check && node --experimental-strip-types scripts/generate-taxonomy.ts --check",
     "test:db": "bash scripts/test-db.sh",
     "e2e": "playwright test",
