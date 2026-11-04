@@ -71,13 +71,15 @@ export function CatalogView({ catalog, filters, basePath, category, page = 1, pr
               <div className="f-actions"><button className="btn btn-primary btn-sm" type="submit">Appliquer</button>{hasFilters ? <Link className="btn btn-ghost btn-sm" href={basePath}>Réinitialiser</Link> : null}</div>
             </form>
           </details>
-          <nav aria-label="Catégories" className="cat-nav">
-            <h2 className="f-label">Catégories</h2>
+          <details className="filters-box">
+            <summary>Catégories</summary>
+            <nav aria-label="Catégories" className="cat-nav">
             <ul>
               {category && category.parent_id ? <li><Link href={`/categorie/${breadcrumb(categories, category)[0].slug}`}>← {breadcrumb(categories, category)[0].name}</Link></li> : null}
               {subs.map((c) => <li key={c.id}><Link href={`/categorie/${c.slug}`} aria-current={category?.slug === c.slug ? "page" : undefined}>{c.name}{counts.get(c.slug) ? <span className="muted"> ({counts.get(c.slug)})</span> : null}</Link></li>)}
             </ul>
-          </nav>
+            </nav>
+          </details>
         </aside>
 
         <section aria-label="Résultats" aria-live="polite">

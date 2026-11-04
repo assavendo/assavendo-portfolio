@@ -35,15 +35,17 @@ export default async function ShopHome() {
         </div>
       </section>
 
-      <section className="section-tight" aria-labelledby="cats-t">
+      <section className="section-tight" aria-label="Catégories">
         <div className="wrap">
-          <div className="section-head"><h2 id="cats-t">Parcourir par catégorie</h2></div>
-          <ul className="cat-tiles">
-            {fams.map((f) => {
-              const n = counts.get(f.slug) ?? 0;
-              return <li key={f.id}><Link className="cat-tile" href={`/categorie/${f.slug}`}><strong>{f.name}</strong><span>{n ? `${n} produit${n > 1 ? "s" : ""}` : `${childrenOf(categories, f.id).length} rayons`}{!f.sellable ? " · en préparation" : ""}</span></Link></li>;
-            })}
-          </ul>
+          <details className="cats-toggle">
+            <summary>Catégories</summary>
+            <ul className="cat-tiles">
+              {fams.map((f) => {
+                const n = counts.get(f.slug) ?? 0;
+                return <li key={f.id}><Link className="cat-tile" href={`/categorie/${f.slug}`}><strong>{f.name}</strong><span>{n ? `${n} produit${n > 1 ? "s" : ""}` : `${childrenOf(categories, f.id).length} rayons`}{!f.sellable ? " · en préparation" : ""}</span></Link></li>;
+              })}
+            </ul>
+          </details>
         </div>
       </section>
 
