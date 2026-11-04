@@ -3,11 +3,12 @@ import { useActionState } from "react";
 import { saveProblem, type AdminState } from "@/app/actions/admin";
 import type { Domain, Problem } from "@/lib/types";
 import { CoverField } from "./ImagePicker";
+import { SaveBar } from "./SaveBar";
 
 export function ProblemForm({ p, domains, tools, cree = false }: { p: Problem | null; domains: Domain[]; tools: string[]; cree?: boolean }) {
   const [state, action, pending] = useActionState(saveProblem, {} as AdminState);
   return (
-    <form action={action} className="form-grid">
+    <form action={action} className="form-grid" noValidate>
       <input type="hidden" name="id" value={p?.id ?? ""} />
       <label className="field full">Titre (formulé comme le ressent le client)<input className="input" name="title" defaultValue={state.values?.title ?? (p?.title)} required /></label>
       <label className="field">Domaine<select className="input" name="domain_id" defaultValue={state.values?.domain_id ?? (p?.domain_id ?? "")}><option value="">—</option>{domains.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
@@ -37,8 +38,7 @@ export function ProblemForm({ p, domains, tools, cree = false }: { p: Problem | 
       <label className="field">Statut<select className="input" name="status" defaultValue={state.values?.status ?? (p?.status ?? "draft")}><option value="draft">Brouillon</option><option value="published">Publié</option><option value="archived">Archivé</option></select></label>
       <label className="field">Ordre d'affichage<input className="input" type="number" name="sort" defaultValue={state.values?.sort ?? (p?.sort ?? 1000)} /></label>
       <label className="full"><input type="checkbox" name="featured" defaultChecked={state.values ? state.values.featured === "on" : p?.featured} /> Mettre en avant sur l'accueil</label>
-      <div className="full"><button className="btn btn-primary" disabled={pending}>{pending ? "Enregistrement…" : "Enregistrer"}</button>
-        {state.error ? <p className="alert alert-err" role="alert" style={{ marginTop: ".8rem" }}>{state.error}</p> : null}{!state.ok && !state.error && cree ? <p className="alert alert-ok" role="status" style={{ marginTop: ".8rem" }}>Créé. Vous pouvez continuer à le modifier ici.</p> : null}{state.ok ? <p className="alert alert-ok" role="status" style={{ marginTop: ".8rem" }}>{state.ok}</p> : null}</div>
+      <SaveBar pending={pending} state={state} cree={cree} />
     </form>
   );
 }

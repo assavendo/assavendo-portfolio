@@ -420,3 +420,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .95rem; }
 .header-tools { display: flex; gap: .4rem; align-items: center; }
 .header-search { display: flex; }
 .header-search input { min-width: 0; width: 11rem; padding: .45rem .7rem; min-height: 40px; }
+/* barre d'enregistrement collante (administration) */
+.save-bar { position: sticky; bottom: 0; z-index: 40; padding: .8rem 0; background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(6px); border-top: 1px solid var(--line-strong); }
+.save-bar-in { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.save-msg { margin: 0; font-size: .95rem; color: var(--ink-2); flex: 1 1 18rem; outline: none; }
+.save-msg.is-err { color: var(--fail); font-weight: 650; }
+.save-msg.is-ok { color: var(--ok); font-weight: 650; }
+.attr-grid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }

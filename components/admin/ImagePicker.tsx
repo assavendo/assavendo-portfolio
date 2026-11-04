@@ -47,7 +47,7 @@ export function CoverField({ initial }: { initial: Img | null }) {
       {img ? <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "start" }}>
         <img src={img.url} alt="" style={{ width: 220, aspectRatio: "4/3", objectFit: "cover", borderRadius: 6 }} />
         <div style={{ flex: "1 1 260px", display: "grid", gap: ".6rem" }}>
-          <label className="field">Texte alternatif (décrit l'image pour les lecteurs d'écran)<input className="input" name="cover_alt" value={img.alt} onChange={(e) => setImg({ ...img, alt: e.target.value })} required /></label>
+          <label className="field">Texte alternatif (décrit l'image pour les lecteurs d'écran)<input className="input" name="cover_alt" value={img.alt} onChange={(e) => setImg({ ...img, alt: e.target.value })} /></label>
           <input type="hidden" name="cover_url" value={img.url} /><input type="hidden" name="cover_credit" value={img.credit ?? ""} />
           {img.credit ? <p className="muted small">{img.credit}</p> : null}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setImg(null)}>Retirer l'image</button>
@@ -67,7 +67,7 @@ export function GalleryField({ initial }: { initial: Img[] }) {
           <img src={img.url} alt="" style={{ width: 140, aspectRatio: "4/3", objectFit: "cover", borderRadius: 6 }} />
           <div style={{ flex: "1 1 240px", display: "grid", gap: ".5rem" }}>
             <input type="hidden" name="img_url" value={img.url} /><input type="hidden" name="img_credit" value={img.credit ?? ""} />
-            <label className="field">Texte alternatif<input className="input" name="img_alt" value={img.alt} onChange={(e) => setImgs(imgs.map((x, k) => (k === i ? { ...x, alt: e.target.value } : x)))} required /></label>
+            <label className="field">Texte alternatif<input className="input" name="img_alt" value={img.alt} onChange={(e) => setImgs(imgs.map((x, k) => (k === i ? { ...x, alt: e.target.value } : x)))} /></label>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setImgs(imgs.filter((_, k) => k !== i))} style={{ justifySelf: "start" }}>Retirer</button>
           </div>
         </div>
