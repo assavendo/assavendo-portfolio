@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { requireAdmin } from "@/lib/admin";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin, supabaseServer } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 import { toolKeys } from "@/lib/tool-keys";
 import { slugProblem, validatePublishable } from "@/lib/content-rules";
@@ -278,10 +278,32 @@ export async function updateFulfilment(form: FormData) {
   const d = parsed.data;
   const { data: cur } = await sb.from("orders").select("fulfilment, status, customer_email, order_number, access_token").eq("id", d.id).maybeSingle();
   if (!cur || cur.status !== "paid") throw new Error("Seule une commande payée peut être expédiée.");
-  const { error } = await sb.from("orders").update({ fulfilment: d.fulfilment, tracking_number: d.tracking_number || null, tracking_url: d.tracking_url || null }).eq("id", d.id);
+  const { error } = await sb.from("orders").update({ fulfilment: d.fulfilment, tracking_number: d.tracking_number || null, tracking_url: d.tracking_url || null, ...(d.fulfilment === "delivered" ? { delivered_at: new Date().toISOString() } : {}) }).eq("id", d.id);
   if (error) throw new Error("Mise à jour impossible : " + error.message);
   if (d.fulfilment === "shipped" && cur.fulfilment !== "shipped") {
     await sendEmail({ to: cur.customer_email, subject: `Votre commande ${cur.order_number} est expédiée`, html: `<p>Bonne nouvelle : votre commande <strong>${esc(cur.order_number ?? "")}</strong> est expédiée.</p>${d.tracking_url ? `<p>Suivre le colis : <a href="${esc(d.tracking_url)}">${esc(d.tracking_number || d.tracking_url)}</a></p>` : d.tracking_number ? `<p>Numéro de suivi : ${esc(d.tracking_number)}</p>` : ""}<p>Détail de la commande : <a href="${siteUrl}/commande/${cur.access_token}">${siteUrl}/commande/${cur.access_token}</a></p><p>Assavendo</p>` });
   }
   revalidatePath("/admin/commandes");
+}
+
+/** Traitement d'une demande de retour. « Colis reçu » peut remettre l'article en stock (journalisé). Le remboursement se fait dans Stripe. */
+export async function processReturn(form: FormData) {
+  const { sb } = await requireAdmin();
+  const d = z.object({ id: z.string().uuid(), status: z.enum(["approved", "refused", "received", "refunded"]), admin_note: z.string().trim().max(2000).optional() }).parse(Object.fromEntries(form));
+  const { data: r } = await sb.from("return_requests").select("id, status, email, order_item_id, order_items(title, qty, product_id, variant_id, kind), orders(order_number)").eq("id", d.id).maybeSingle();
+  if (!r) throw new Error("Demande introuvable.");
+  const { error } = await sb.from("return_requests").update({ status: d.status, admin_note: d.admin_note ?? "", updated_at: new Date().toISOString() }).eq("id", d.id);
+  if (error) throw new Error("Mise à jour impossible : " + error.message);
+  const it = r.order_items as unknown as { title: string; qty: number; product_id: string; variant_id: string | null; kind: string } | null;
+  if (d.status === "received" && r.status !== "received" && form.get("restock") === "on" && it?.kind === "physical") {
+    const db = supabaseAdmin();
+    if (it.variant_id) { const { data: v } = await db.from("product_variants").select("stock_qty").eq("id", it.variant_id).maybeSingle(); if (v) await db.from("product_variants").update({ stock_qty: v.stock_qty + it.qty }).eq("id", it.variant_id); }
+    else { const { data: p } = await db.from("products").select("stock_qty, track_stock").eq("id", it.product_id).maybeSingle(); if (p?.track_stock) await db.from("products").update({ stock_qty: p.stock_qty + it.qty }).eq("id", it.product_id); }
+    await db.from("stock_movements").insert({ product_id: it.product_id, variant_id: it.variant_id, delta: it.qty, reason: "retour", reference: d.id });
+  }
+  if (d.status !== r.status) {
+    const label = { approved: "Votre demande de retour est acceptée.", refused: "Votre demande de retour a été refusée.", received: "Nous avons bien reçu votre colis.", refunded: "Votre remboursement a été effectué." }[d.status];
+    await sendEmail({ to: r.email, subject: `Retour : ${it?.title ?? "votre article"}`, html: `<p>${esc(label)}</p>${d.admin_note ? `<p>${esc(d.admin_note)}</p>` : ""}<p>Assavendo</p>` });
+  }
+  revalidatePath("/admin/retours");
 }

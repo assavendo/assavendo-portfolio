@@ -11,6 +11,8 @@ import { AddToCart } from "@/components/AddToCart";
 import { breadcrumb, getBrands, getCategories, getVariants } from "@/lib/catalog";
 import { isAvailable } from "@/lib/search";
 import Link from "next/link";
+import { currentCustomer } from "@/lib/customer";
+import { toggleFavorite } from "@/app/actions/account";
 
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -27,6 +29,8 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const variants = allVariants.filter((v) => v.product_id === p.id);
   const cat = cats.find((c) => c.id === p.category_id) ?? null; const crumbs = breadcrumb(cats, cat); const brand = brands.find((b) => b.id === p.brand_id);
   const available = isAvailable(p, variants);
+  const cust = await currentCustomer();
+  const isFav = cust ? Boolean((await cust.sb.from("favorites").select("product_id").eq("user_id", cust.user.id).eq("product_id", p.id).maybeSingle()).data) : false;
   const attrDefs = [...(cat?.attributes ?? []), ...(cat?.parent_id ? cats.find((c) => c.id === cat.parent_id)?.attributes ?? [] : [])];
   const attrRows = attrDefs.filter((a) => p.attributes?.[a.key] !== undefined && p.attributes[a.key] !== "").map((a) => ({ label: a.label, value: typeof p.attributes![a.key] === "boolean" ? (p.attributes![a.key] ? "Oui" : "Non") : `${p.attributes![a.key]}${a.unit ? ` ${a.unit}` : ""}` }));
   const old = p.compare_at_cents && p.compare_at_cents > p.price_cents ? p.compare_at_cents : null;
@@ -53,6 +57,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           {!available ? <p className="stock out" role="status">Épuisé</p> : null}
           <ul className="plain facts">{delivery ? <li>{delivery}</li> : null}{p.kind === "physical" && p.return_days ? <li>Retour possible sous {p.return_days} jours</li> : null}{p.warranty_months ? <li>Garantie {p.warranty_months} mois</li> : null}{p.origin_country ? <li>Origine : {p.origin_country}</li> : null}{p.sku ? <li>Référence : {p.sku}</li> : null}</ul>
           <AddToCart p={p} variants={variants} slug={p.slug} notice={sp.panier} />
+          <form action={toggleFavorite} style={{ marginTop: ".6rem" }}><input type="hidden" name="productId" value={p.id} /><input type="hidden" name="back" value={`/boutique/${p.slug}`} /><button className="btn btn-ghost btn-sm" type="submit" aria-pressed={isFav}>{isFav ? "♥ Dans mes favoris" : "♡ Ajouter aux favoris"}</button></form>
           {p.demo_url ? <p style={{ marginTop: "1rem" }}><a className="btn btn-ghost" href={p.demo_url} target="_blank" rel="noopener noreferrer">Essayer la démonstration</a></p> : null}
           <ActionsBar productId={p.id} slug={p.slug} title={p.title} likes={stats.likes} shares={stats.shares} liked={liked} />
         </div>
