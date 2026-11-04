@@ -11,5 +11,17 @@ export type Product = {
   id: string; slug: string; title: string; summary: string; description: string; kind: "digital" | "service" | "physical";
   price_cents: number; currency: string; features: string[]; images: ProductImage[]; demo_url: string | null;
   status: "draft" | "published" | "archived"; allow_comments: boolean; allow_reviews: boolean; published_at: string | null; created_at: string;
+  // catalogue (migration 20261104) : optionnels pour rester compatibles avec les lignes plus anciennes
+  category_id?: string | null; brand_id?: string | null; compare_at_cents?: number | null; attributes?: Record<string, string | number | boolean>;
+  tags?: string[]; sku?: string | null; gtin?: string | null; weight_g?: number | null; origin_country?: string | null;
+  delivery_min_days?: number | null; delivery_max_days?: number | null; warranty_months?: number | null; return_days?: number; shipping_cents?: number;
+  track_stock?: boolean; stock_qty?: number; low_stock_threshold?: number; seller_type?: "first_party" | "supplier" | "marketplace";
 };
+export type AttrDef = { key: string; label: string; type: "enum" | "number" | "boolean" | "text"; unit?: string; values?: string[]; filterable?: boolean };
+export type Category = {
+  id: string; parent_id: string | null; slug: string; name: string; kind: "digital" | "service" | "physical"; description: string;
+  sellable: boolean; note: string; attributes: AttrDef[]; sort: number;
+};
+export type Brand = { id: string; slug: string; name: string };
+export type Variant = { id: string; product_id: string; sku: string | null; label: string; options: Record<string, string>; price_cents: number | null; stock_qty: number; active: boolean; sort: number };
 export const eur = (cents: number) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);

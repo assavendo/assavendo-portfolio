@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-const pages = ["/", "/problemes", "/problemes/site-invisible-sur-google", "/offres", "/methode", "/contact", "/boutique", "/conditions-de-vente"];
+const pages = ["/", "/services", "/categorie/electronique", "/categorie/smartphones", "/numerique", "/promotions", "/aide", "/problemes", "/problemes/site-invisible-sur-google", "/offres", "/methode", "/contact", "/boutique", "/conditions-de-vente"];
 
 for (const path of pages) {
   test(`accessibilité (axe) : ${path}`, async ({ page }) => {
@@ -12,7 +12,7 @@ for (const path of pages) {
 }
 
 test("canoniques propres à chaque page, jamais localhost", async ({ page }) => {
-  for (const path of ["/", "/problemes", "/contact", "/offres", "/mentions-legales", "/conditions-de-vente", "/problemes/site-invisible-sur-google"]) {
+  for (const path of ["/", "/services", "/boutique", "/aide", "/categorie/electronique", "/problemes", "/contact", "/offres", "/mentions-legales", "/conditions-de-vente", "/problemes/site-invisible-sur-google"]) {
     await page.goto(path);
     const href = await page.locator('link[rel="canonical"]').getAttribute("href");
     expect(href, path).toBe(`https://example.com${path === "/" ? "" : path}`);
@@ -62,4 +62,19 @@ test("menu mobile : Échap le referme", async ({ page, isMobile }) => {
   await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Menu" })).toBeFocused();
+});
+
+test("la boutique est l'accueil et les services restent accessibles par le menu", async ({ page, isMobile }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Des produits clairs");
+  if (isMobile) await page.getByRole("button", { name: "Menu" }).click();
+  await page.getByText("Services & solutions", { exact: true }).first().click();
+  await page.getByRole("link", { name: "Problèmes résolus" }).first().click();
+  await expect(page).toHaveURL(/\/problemes$/);
+});
+
+test("recherche : un terme sans résultat affiche un état vide honnête, une catégorie inconnue donne 404", async ({ page }) => {
+  await page.goto("/boutique?q=zzzzqqq");
+  await expect(page.locator("p.result-count")).toContainText("0 produit");
+  expect((await page.goto("/categorie/inexistante"))?.status()).toBe(404);
 });
