@@ -171,7 +171,7 @@ export async function saveProduct(_: unknown, form: FormData): Promise<AdminStat
       if (dmin !== null && dmax !== null && dmin > dmax) return fail("Le délai minimum ne peut pas dépasser le délai maximum.");
       if (d.status === "published" && d.kind === "physical" && (dmin === null || dmax === null)) return fail("Un produit physique publié doit indiquer son délai de livraison (minimum et maximum).");
       Object.assign(row, {
-        sku: String(form.get("sku") ?? "").trim() || null, gtin: gtin || null, origin_country: origin || null, shipping_cents: ship === "invalid" ? 0 : ship ?? 0,
+        sku: String(form.get("sku") ?? "").trim() || null, gtin: gtin || null, origin_country: origin || null, shipping_cents: ship ?? 0,
         track_stock: form.get("track_stock") === "on", weight_g: num(n.weight_g), delivery_min_days: dmin, delivery_max_days: dmax, warranty_months: num(n.warranty_months),
         return_days: num(n.return_days) ?? 14, stock_qty: num(n.stock_qty) ?? 0, low_stock_threshold: num(n.low_stock_threshold) ?? 3,
       });

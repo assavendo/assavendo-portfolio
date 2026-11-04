@@ -9,7 +9,7 @@ type Props = { p: Product | null; categories: Category[]; brandName?: string; de
 
 export function ProductForm({ p, categories, brandName = "", deliverableName, cree = false, catalogReady = true }: Props) {
   const [state, action, pending] = useActionState(saveProduct, {} as AdminState);
-  const v = (k: string, d: string | number | undefined | null) => String(state.values?.[k] ?? d ?? "");
+  const v = (k: string, d: string | number | boolean | undefined | null) => String(state.values?.[k] ?? d ?? "");
   const [catId, setCatId] = useState(v("category_id", p?.category_id));
   const [kind, setKind] = useState(v("kind", p?.kind ?? "digital"));
   const cat = categories.find((c) => c.id === catId);
