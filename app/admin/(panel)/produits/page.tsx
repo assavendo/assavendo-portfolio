@@ -2,14 +2,16 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/admin";
 import { ProductForm } from "@/components/admin/ProductForm";
 import { deleteProduct } from "@/app/actions/admin";
-import { eur, type Product } from "@/lib/types";
+import { eur, type Category, type Product } from "@/lib/types";
 
 export default async function Produits({ searchParams }: { searchParams: Promise<{ id?: string; cree?: string }> }) {
   const { sb } = await requireAdmin(); const sp = await searchParams;
   if (sp.id) {
     const p = sp.id === "nouveau" ? null : ((await sb.from("products").select("*").eq("id", sp.id).maybeSingle()).data as Product | null);
+    const cats = await sb.from("categories").select("*").order("sort");
+    const brand = p?.brand_id ? (await sb.from("brands").select("name").eq("id", p.brand_id).maybeSingle()).data : null;
     const d = p ? (await sb.from("product_deliverables").select("file_name").eq("product_id", p.id).maybeSingle()).data : null;
-    return <div><p><Link href="/admin/produits">← Retour à la liste</Link></p><h1 style={{ fontSize: "1.8rem" }}>{p ? "Modifier le produit" : "Nouveau produit"}</h1><div className="panel"><ProductForm p={p} deliverableName={d?.file_name} cree={sp.cree === "1"} /></div>
+    return <div><p><Link href="/admin/produits">← Retour à la liste</Link></p><h1 style={{ fontSize: "1.8rem" }}>{p ? "Modifier le produit" : "Nouveau produit"}</h1><div className="panel"><ProductForm p={p} categories={(cats.data ?? []) as Category[]} catalogReady={!cats.error} brandName={brand?.name} deliverableName={d?.file_name} cree={sp.cree === "1"} /></div>
       {p ? <form action={deleteProduct}><input type="hidden" name="id" value={p.id} /><button className="btn btn-ghost btn-sm">Supprimer définitivement</button></form> : null}</div>;
   }
   const { data } = await sb.from("products").select("id, title, price_cents, status").order("created_at", { ascending: false });

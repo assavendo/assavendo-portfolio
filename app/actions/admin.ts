@@ -88,11 +88,20 @@ export async function deleteProblem(form: FormData) {
 }
 
 const productSchema = z.object({
-  id: z.string().uuid().optional().or(z.literal("")), title: z.string().trim().min(2).max(180), slug: text(80).optional(),
+  id: z.string().uuid().optional().or(z.literal("")), title: z.string().trim().min(2, "Le nom du produit est obligatoire.").max(180, "Le nom du produit est trop long (180 caractères maximum)."), slug: text(80).optional(),
   summary: z.string().trim().min(12, "Le résumé doit faire au moins 12 caractères.").max(500), description: text(8000),
   kind: z.enum(["digital", "service", "physical"]), price: z.coerce.number().min(0).max(100000), status: z.enum(["draft", "published", "archived"]),
   demo_url: z.string().url().optional().or(z.literal("")), deliverable_path: text(300).optional(), deliverable_name: text(200).optional(),
 });
+const optInt = (form: FormData, k: string, max = 1_000_000): number | null | "invalid" => {
+  const raw = String(form.get(k) ?? "").trim(); if (!raw) return null;
+  const n = Number(raw.replace(",", ".")); return Number.isInteger(n) && n >= 0 && n <= max ? n : "invalid";
+};
+const euros = (form: FormData, k: string): number | null | "invalid" => {
+  const raw = String(form.get(k) ?? "").trim(); if (!raw) return null;
+  const n = Number(raw.replace(",", ".")); return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.round(n * 100) : "invalid";
+};
+
 export async function saveProduct(_: unknown, form: FormData): Promise<AdminState> {
   const { sb } = await requireAdmin();
   const values = formValues(form);
@@ -112,12 +121,68 @@ export async function saveProduct(_: unknown, form: FormData): Promise<AdminStat
     const { data: existing } = id ? await sb.from("product_deliverables").select("product_id").eq("product_id", id).maybeSingle() : { data: null };
     if (!hasNew && !existing) return fail("Un produit numérique publié doit avoir un fichier livrable : envoyez-le avant de publier.");
   }
-  const row = { title: d.title, slug: slugify(d.slug || d.title), summary: d.summary, description: d.description, kind: d.kind, price_cents: cents, features: lines(form.get("features")), images, demo_url: d.demo_url || null, status: d.status, allow_comments: form.get("allow_comments") === "on", allow_reviews: form.get("allow_reviews") === "on" };
+  const row: Record<string, unknown> = { title: d.title, slug: slugify(d.slug || d.title), summary: d.summary, description: d.description, kind: d.kind, price_cents: cents, features: lines(form.get("features")), images, demo_url: d.demo_url || null, status: d.status, allow_comments: form.get("allow_comments") === "on", allow_reviews: form.get("allow_reviews") === "on" };
+  // Champs de catalogue : présents seulement si la migration catalogue est appliquée (le formulaire les affiche alors)
+  if (form.has("category_id")) {
+    const catId = String(form.get("category_id") ?? "") || null;
+    let attrDefs: { key: string; type: string; values?: string[] }[] = [];
+    if (catId) {
+      const { data: cat } = await sb.from("categories").select("id, parent_id, sellable, note, attributes").eq("id", catId).maybeSingle();
+      if (!cat) return fail("Catégorie introuvable.");
+      if (d.status === "published" && !cat.sellable) return fail("Publication impossible : " + (cat.note || "cette famille n'est pas encore validée pour la vente."));
+      attrDefs = [...(cat.attributes ?? [])];
+      if (cat.parent_id) { const { data: par } = await sb.from("categories").select("attributes").eq("id", cat.parent_id).maybeSingle(); attrDefs = [...attrDefs, ...(par?.attributes ?? [])]; }
+    }
+    const attributes: Record<string, string | number | boolean> = {};
+    for (const a of attrDefs) {
+      const raw = String(form.get(`attr_${a.key}`) ?? "").trim(); if (!raw) continue;
+      if (a.type === "enum" && !a.values?.includes(raw)) return fail(`Valeur invalide pour « ${a.key} ».`);
+      if (a.type === "number") { const n = Number(raw.replace(",", ".")); if (!Number.isFinite(n)) return fail(`« ${a.key} » doit être un nombre.`); attributes[a.key] = n; }
+      else if (a.type === "boolean") attributes[a.key] = raw === "true";
+      else attributes[a.key] = raw.slice(0, 120);
+    }
+    const compare = euros(form, "compare_at");
+    if (compare === "invalid") return fail("Ancien prix invalide.");
+    if (compare !== null && compare <= cents) return fail("L'ancien prix barré doit être supérieur au prix actuel (aucune fausse remise).");
+    let brand_id: string | null = null;
+    const brandName = String(form.get("brand") ?? "").trim().slice(0, 120);
+    if (brandName) {
+      const bslug = slugify(brandName) || "marque";
+      const { data: b } = await sb.from("brands").select("id").eq("slug", bslug).maybeSingle();
+      if (b) brand_id = b.id;
+      else {
+        const { data: nb, error: be } = await sb.from("brands").insert({ slug: bslug, name: brandName }).select("id").single();
+        if (be || !nb) return fail("Marque non enregistrée : " + (be?.message ?? "erreur"));
+        brand_id = nb.id;
+      }
+    }
+    Object.assign(row, { category_id: catId, brand_id, compare_at_cents: compare, attributes, tags: String(form.get("tags") ?? "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 20) });
+    if (form.has("sku")) {
+      const gtin = String(form.get("gtin") ?? "").trim();
+      if (gtin && !/^[0-9]{8,14}$/.test(gtin)) return fail("Le code-barres doit contenir 8 à 14 chiffres.");
+      const origin = String(form.get("origin_country") ?? "").trim().toUpperCase();
+      if (origin && !/^[A-Z]{2}$/.test(origin)) return fail("Le pays d'origine s'indique par un code à 2 lettres (FR, DE…).");
+      const n = { weight_g: optInt(form, "weight_g"), delivery_min_days: optInt(form, "delivery_min_days", 365), delivery_max_days: optInt(form, "delivery_max_days", 365), warranty_months: optInt(form, "warranty_months", 240), return_days: optInt(form, "return_days", 365), stock_qty: optInt(form, "stock_qty"), low_stock_threshold: optInt(form, "low_stock_threshold", 100_000) };
+      for (const [k, val] of Object.entries(n)) if (val === "invalid") return fail(`Valeur invalide pour « ${k} » : entrez un nombre entier positif.`);
+      const ship = euros(form, "shipping");
+      if (ship === "invalid") return fail("Frais de livraison invalides.");
+      const num = (x: number | null | "invalid") => (x === "invalid" ? null : x);
+      const dmin = num(n.delivery_min_days), dmax = num(n.delivery_max_days);
+      if (dmin !== null && dmax !== null && dmin > dmax) return fail("Le délai minimum ne peut pas dépasser le délai maximum.");
+      if (d.status === "published" && d.kind === "physical" && (dmin === null || dmax === null)) return fail("Un produit physique publié doit indiquer son délai de livraison (minimum et maximum).");
+      Object.assign(row, {
+        sku: String(form.get("sku") ?? "").trim() || null, gtin: gtin || null, origin_country: origin || null, shipping_cents: ship === "invalid" ? 0 : ship ?? 0,
+        track_stock: form.get("track_stock") === "on", weight_g: num(n.weight_g), delivery_min_days: dmin, delivery_max_days: dmax, warranty_months: num(n.warranty_months),
+        return_days: num(n.return_days) ?? 14, stock_qty: num(n.stock_qty) ?? 0, low_stock_threshold: num(n.low_stock_threshold) ?? 3,
+      });
+    }
+  }
+
   if (id) {
     const { data: cur } = await sb.from("products").select("published_at").eq("id", id).maybeSingle();
     const published_at = d.status === "published" ? cur?.published_at ?? new Date().toISOString() : cur?.published_at ?? null;
     const { error } = await sb.from("products").update({ ...row, published_at }).eq("id", id);
-    if (error) return fail(error.code === "23505" ? "Cette adresse (slug) existe déjà." : error.message);
+    if (error) return fail(error.code === "23505" ? "Cette adresse (slug) ou cette référence (SKU) existe déjà." : error.message);
   } else {
     const { data, error } = await sb.from("products").insert({ ...row, published_at: d.status === "published" ? new Date().toISOString() : null }).select("id").single();
     if (error || !data) return fail(error?.code === "23505" ? "Cette adresse (slug) existe déjà." : (error?.message ?? "Enregistrement impossible."));
@@ -127,7 +192,7 @@ export async function saveProduct(_: unknown, form: FormData): Promise<AdminStat
     const { error } = await sb.from("product_deliverables").upsert({ product_id: id!, storage_path: d.deliverable_path, file_name: d.deliverable_name || "fichier" });
     if (error) return fail("Produit enregistré, mais le fichier livrable n'a pas pu être rattaché : " + error.message);
   }
-  revalidateTag("products"); revalidatePath("/boutique"); revalidatePath("/admin/produits");
+  revalidateTag("products"); revalidateTag("brands"); revalidatePath("/"); revalidatePath("/boutique"); revalidatePath("/numerique"); revalidatePath("/promotions"); revalidatePath("/admin/produits");
   if (!d.id) redirect(`/admin/produits?id=${id}&cree=1`);
   return { ok: "Produit enregistré." };
 }
