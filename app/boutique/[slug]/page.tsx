@@ -7,7 +7,8 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { eur } from "@/lib/types";
 import { siteUrl } from "@/lib/env";
 import { ActionsBar, Comments, ReviewForm, Reviews } from "@/components/ProductSocial";
-import { BuyForm } from "@/components/BuyForm";
+import { AddToCart } from "@/components/AddToCart";
+import { getVariants } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -16,10 +17,11 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return { title: p.title, description: p.summary, alternates: { canonical: `/boutique/${p.slug}` }, openGraph: { images: p.images[0]?.url ? [p.images[0].url] : undefined } };
 }
 
-export default async function ProductPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ paiement?: string }> }) {
+export default async function ProductPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
   const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) notFound();
   const stats = await getProductStats(p.id);
+  const variants = (await getVariants()).filter((v) => v.product_id === p.id);
   const vid = await visitorId(false);
   let liked = false;
   if (vid && process.env.SUPABASE_SECRET_KEY) { const { data } = await supabaseAdmin().from("product_likes").select("product_id").eq("product_id", p.id).eq("visitor_id", vid).maybeSingle(); liked = !!data; }
@@ -37,8 +39,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           <p>{p.summary}</p>
           {stats.reviews ? <p><span className="stars" aria-hidden="true">★</span> <strong>{stats.rating.toFixed(1)}</strong> <span className="muted">({stats.reviews} avis{stats.verifiedReviews ? `, dont ${stats.verifiedReviews} d'acheteurs` : ""})</span></p> : null}
           <p className="price">{p.price_cents ? eur(p.price_cents) : "Gratuit"}</p>
-          {sp.paiement === "annule" ? <p className="alert alert-err" role="status">Paiement annulé : aucun montant n'a été prélevé.</p> : null}
-          {p.price_cents === 0 || p.price_cents >= 50 ? <BuyForm productId={p.id} kind={p.kind} free={p.price_cents === 0} label={p.price_cents === 0 ? "Recevoir gratuitement" : `Acheter · ${eur(p.price_cents)}`} /> : <p className="muted">Ce produit n'est pas vendu en ligne : <a href="/contact">contactez-nous</a>.</p>}
+          <AddToCart p={p} variants={variants} slug={p.slug} notice={sp.panier} />
           {p.demo_url ? <p style={{ marginTop: "1rem" }}><a className="btn btn-ghost" href={p.demo_url} target="_blank" rel="noopener noreferrer">Essayer la démonstration</a></p> : null}
           <ActionsBar productId={p.id} slug={p.slug} title={p.title} likes={stats.likes} shares={stats.shares} liked={liked} />
         </div>

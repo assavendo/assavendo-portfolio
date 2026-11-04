@@ -12,6 +12,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   if (!/^[A-Za-z0-9_-]{20,80}$/.test(token) || !(await allow("download", 20, 600))) return text("Lien invalide.", 404);
   const db = supabaseAdmin();
   // Contrôle des conditions ET incrément du compteur en une seule opération atomique (téléchargements simultanés inclus).
+  // Les commandes à lignes ont un jeton par fichier ; les anciennes commandes un jeton sur la commande.
+  const item = await db.rpc("claim_item_download", { p_token: token, p_ip_hash: hashIp(await clientIp()), p_user_agent: req.headers.get("user-agent") });
+  const itemRow = (item.error ? null : Array.isArray(item.data) ? item.data[0] : item.data) as { storage_path: string; file_name: string; order_id: string; item_id: string } | null;
+  if (itemRow) {
+    const { data: signed, error: sErr } = await db.storage.from("deliverables").createSignedUrl(itemRow.storage_path, 60, { download: itemRow.file_name });
+    if (sErr || !signed) {
+      console.error("[download] lien signé", sErr?.message);
+      await db.rpc("release_item_download", { p_item_id: itemRow.item_id });
+      return text("Fichier momentanément indisponible. Votre téléchargement n'a pas été décompté.", 503);
+    }
+    const res = NextResponse.redirect(signed.signedUrl, 302);
+    Object.entries(noStore).forEach(([k, v]) => res.headers.set(k, v));
+    return res;
+  }
   const { data, error } = await db.rpc("claim_download", { p_token: token, p_ip_hash: hashIp(await clientIp()), p_user_agent: req.headers.get("user-agent") });
   if (error) { console.error("[download] claim", error.message); return text("Service momentanément indisponible. Réessayez dans un instant.", 503); }
   const row = (Array.isArray(data) ? data[0] : data) as { storage_path: string; file_name: string; order_id: string } | null;

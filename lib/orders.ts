@@ -3,7 +3,7 @@ import { siteUrl } from "./env";
 import type { supabaseAdmin } from "./supabase/server";
 
 type Db = ReturnType<typeof supabaseAdmin>;
-export type FulfilRow = { result: "fulfilled" | "already" | "mismatch" | "ignored" | "not_found"; order_id: string; download_token: string | null; customer_email: string | null; product_id: string | null; email_sent: boolean };
+export type FulfilRow = { result: "fulfilled" | "already" | "mismatch" | "ignored" | "not_found"; order_id: string; download_token: string | null; customer_email: string | null; product_id?: string | null; email_sent: boolean };
 
 /** Lit la première ligne renvoyée par une fonction SQL « returns table ». */
 export const firstRow = <T,>(data: unknown): T | null => (Array.isArray(data) ? ((data[0] as T) ?? null) : ((data as T) ?? null));
@@ -12,7 +12,7 @@ export const firstRow = <T,>(data: unknown): T | null => (Array.isArray(data) ? 
  * Envoie la confirmation d'achat (avec le lien de téléchargement si le produit comporte un fichier) et l'enregistre.
  * Retourne true quand il n'y a plus rien à retenter ; false si l'envoi a échoué et doit être repris (le webhook répond alors 500).
  */
-export async function sendOrderEmail(db: Db, o: { order_id: string; download_token: string | null; customer_email: string | null; product_id: string | null }): Promise<boolean> {
+export async function sendOrderEmail(db: Db, o: { order_id: string; download_token?: string | null; customer_email: string | null; product_id?: string | null }): Promise<boolean> {
   if (!o.customer_email) return true;
   if (!isEmailConfigured()) {
     await db.from("orders").update({ needs_review: true, review_note: "E-mail de confirmation non envoyé : service d'e-mail non configuré." }).eq("id", o.order_id);
@@ -36,4 +36,34 @@ export async function sendOrderEmail(db: Db, o: { order_id: string; download_tok
 
 export async function alertOrderProblem(orderId: string, what: string): Promise<void> {
   await notifyOwner("Commande à vérifier", `<p>${esc(what)}</p><p>Commande : <code>${esc(orderId)}</code> — voir ${siteUrl}/admin/commandes</p>`);
+}
+
+/**
+ * Confirmation d'une commande à lignes : récapitulatif, numéro, lien de téléchargement par fichier, information de livraison.
+ * Même contrat que sendOrderEmail : true = plus rien à retenter, false = à reprendre.
+ */
+export async function sendCartOrderEmail(db: Db, orderId: string): Promise<boolean> {
+  const { data: o } = await db.from("orders").select("id, order_number, customer_email, amount_cents, subtotal_cents, shipping_cents, expires_at, access_token, fulfilment").eq("id", orderId).maybeSingle();
+  if (!o || !o.customer_email) return true;
+  if (!isEmailConfigured()) {
+    await db.from("orders").update({ needs_review: true, review_note: "E-mail de confirmation non envoyé : service d'e-mail non configuré." }).eq("id", orderId);
+    return true;
+  }
+  const { data: items } = await db.from("order_items").select("title, variant_label, qty, unit_price_cents, kind, download_token, download_max").eq("order_id", orderId).order("created_at");
+  const eur = (c: number) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(c / 100);
+  const rows = (items ?? []).map((i) => `<tr><td>${esc(i.title)}${i.variant_label ? ` (${esc(i.variant_label)})` : ""}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">${i.unit_price_cents ? eur(i.unit_price_cents * i.qty) : "Gratuit"}</td></tr>`).join("");
+  const downloads = (items ?? []).filter((i) => i.download_token).map((i) => `<li><a href="${siteUrl}/api/download/${i.download_token}">Télécharger : ${esc(i.title)}</a> (${i.download_max} téléchargements maximum, lien valable 30 jours)</li>`).join("");
+  const physical = (items ?? []).some((i) => i.kind === "physical");
+  const html = `<p>Merci pour votre confiance.</p><p>Votre commande <strong>${esc(o.order_number ?? "")}</strong> est confirmée.</p>
+<table style="border-collapse:collapse;width:100%" cellpadding="6"><thead><tr><th style="text-align:left">Article</th><th>Qté</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
+<p>${o.shipping_cents ? `Livraison : ${eur(o.shipping_cents)}<br>` : ""}<strong>Total TTC : ${eur(o.amount_cents)}</strong></p>
+${downloads ? `<p>Vos fichiers :</p><ul>${downloads}</ul><p>Ces liens sont personnels : conservez-les précieusement.</p>` : ""}
+${physical ? "<p>Nous préparons l'expédition et vous écrivons dès que le colis est parti, avec le suivi.</p>" : ""}
+<p>Suivre ma commande : <a href="${siteUrl}/commande/${o.access_token}">${siteUrl}/commande/${o.access_token}</a></p>
+<p>Une question ? Répondez simplement à ce message.</p><p>Assavendo</p>`;
+  const ok = await sendEmail({ to: o.customer_email, subject: `Votre commande ${o.order_number ?? ""}`.trim(), html });
+  if (!ok) { console.error("[orders] e-mail de confirmation en échec", orderId); return false; }
+  const { error } = await db.from("orders").update({ email_sent_at: new Date().toISOString() }).eq("id", orderId);
+  if (error) console.error("[orders] email_sent_at non enregistré", orderId, error.message);
+  return true;
 }

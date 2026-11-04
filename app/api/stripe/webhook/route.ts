@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { alertOrderProblem, firstRow, sendOrderEmail, type FulfilRow } from "@/lib/orders";
+import { alertOrderProblem, firstRow, sendCartOrderEmail, sendOrderEmail, type FulfilRow } from "@/lib/orders";
 
 export const runtime = "nodejs";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,14 +33,18 @@ export async function POST(req: Request) {
       const s = event.data.object as Stripe.Checkout.Session;
       const id = s.metadata?.orderId;
       const q = db.from("orders").update({ status: "canceled" }).eq("status", "pending");
-      const { error } = await (id && UUID.test(id) ? q.eq("id", id) : q.eq("stripe_session_id", s.id));
+      const { data: gone, error } = await (id && UUID.test(id) ? q.eq("id", id) : q.eq("stripe_session_id", s.id)).select("id");
       if (error) throw error;
+      // le stock réservé par une commande à lignes est rendu (sans effet pour une ancienne commande)
+      for (const o of gone ?? []) { const { error: re } = await db.rpc("release_order_stock", { p_order_id: o.id }); if (re) throw re; }
     } else if (event.type === "charge.refunded") {
       const c = event.data.object as Stripe.Charge;
       const pi = typeof c.payment_intent === "string" ? c.payment_intent : c.payment_intent?.id;
       if (pi && c.refunded) {
-        const { error } = await db.from("orders").update({ status: "refunded", download_token: null }).eq("payment_intent_id", pi);
+        const { data: refunded, error } = await db.from("orders").update({ status: "refunded", download_token: null }).eq("payment_intent_id", pi).select("id");
         if (error) throw error;
+        const ids = (refunded ?? []).map((o) => o.id);
+        if (ids.length) { const { error: ie } = await db.from("order_items").update({ download_token: null }).in("order_id", ids); if (ie) throw ie; }
       }
     }
     const { error: recErr } = await db.from("stripe_events").upsert({ event_id: event.id, event_type: event.type }, { onConflict: "event_id", ignoreDuplicates: true });
@@ -60,10 +64,13 @@ async function fulfil(db: ReturnType<typeof supabaseAdmin>, s: Stripe.Checkout.S
     orderId = data?.id ?? null;
   }
   if (!orderId) throw new Error(`Aucune commande pour la session ${s.id} : événement rejoué par Stripe`);
+  const { data: ord, error: ordErr } = await db.from("orders").select("product_id").eq("id", orderId).maybeSingle();
+  if (ordErr) throw ordErr;
   const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
   const ex = s as unknown as { collected_information?: { shipping_details?: unknown }; shipping_details?: unknown };
   const billing = s.customer_details ? { name: s.customer_details.name ?? null, address: s.customer_details.address ?? null, tax_ids: s.customer_details.tax_ids ?? null } : null;
-  const { data, error } = await db.rpc("fulfil_order", {
+  const isCart = Boolean(ord) && ord!.product_id === null;
+  const { data, error } = await db.rpc(isCart ? "fulfil_cart_order" : "fulfil_order", {
     p_order_id: orderId, p_session_id: s.id, p_amount: s.amount_total ?? -1, p_currency: s.currency ?? "", p_payment_intent: pi,
     p_email: s.customer_details?.email ?? s.customer_email ?? "", p_paid_at: new Date(created * 1000).toISOString(),
     p_shipping: ex.collected_information?.shipping_details ?? ex.shipping_details ?? null, p_billing: billing, p_ttl_days: 30,
@@ -73,5 +80,5 @@ async function fulfil(db: ReturnType<typeof supabaseAdmin>, s: Stripe.Checkout.S
   if (!r || r.result === "not_found") throw new Error(`Commande ${orderId} introuvable : événement rejoué par Stripe`);
   if (r.result === "mismatch") { await alertOrderProblem(orderId, "Montant ou devise différents de la commande : aucun lien de téléchargement n'a été émis. Vérifiez le paiement dans Stripe."); return; }
   if (r.result === "ignored") return;
-  if (!r.email_sent && !(await sendOrderEmail(db, r))) throw new Error("E-mail de confirmation non envoyé : événement rejoué par Stripe");
+  if (!r.email_sent && !(await (isCart ? sendCartOrderEmail(db, r.order_id) : sendOrderEmail(db, r)))) throw new Error("E-mail de confirmation non envoyé : événement rejoué par Stripe");
 }
