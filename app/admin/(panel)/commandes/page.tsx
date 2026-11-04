@@ -13,7 +13,8 @@ export default async function Commandes() {
     .select("id, customer_email, amount_cents, status, created_at, paid_at, download_count, download_max, expires_at, download_token, email_sent_at, needs_review, review_note, consent_digital_waiver, order_number, fulfilment, tracking_number, tracking_url, shipping, products(title), order_items(title, qty, variant_label, kind)")
     .order("created_at", { ascending: false }).limit(200);
   if (error) {   // migration « panier » pas encore appliquée : l'ancienne lecture reste possible
-    ({ data, error } = await sb.from("orders").select("id, customer_email, amount_cents, status, created_at, paid_at, download_count, download_max, expires_at, download_token, email_sent_at, needs_review, review_note, consent_digital_waiver, products(title)").order("created_at", { ascending: false }).limit(200) as never));
+    const old = await sb.from("orders").select("id, customer_email, amount_cents, status, created_at, paid_at, download_count, download_max, expires_at, download_token, email_sent_at, needs_review, review_note, consent_digital_waiver, products(title)").order("created_at", { ascending: false }).limit(200);
+    data = old.data as never; error = old.error;
   }
   if (error) return <div><h1 style={{ fontSize: "1.8rem" }}>Commandes</h1><p className="alert alert-err" role="alert">Lecture impossible : {error.message}</p></div>;
   const rows = (data ?? []) as unknown as Row[];
