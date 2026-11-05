@@ -14,7 +14,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     db.from("ai_settings").select("*").eq("id", 1).single(),
     db.from("ai_keys").select("id, provider, label, model, key_hint, roles, priority, enabled, cooldown_until, fail_count, last_error, last_ok_at, daily_limit, used_day, used_today").order("priority"),
     db.from("ai_agents").select("*").order("slug"),
-    db.from("ai_tasks").select("*").eq("status", "pending").order("created_at", { ascending: false }),
+    db.from("ai_tasks").select("*").in("status", ["pending", "approved"]).order("created_at", { ascending: false }).limit(100),
     db.from("ai_tasks").select("id, title, result, created_at").eq("kind", "research_note").order("created_at", { ascending: false }).limit(3),
     db.from("ai_runs").select("*").order("created_at", { ascending: false }).limit(25),
   ]);
@@ -82,12 +82,12 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     </section>
 
     <section className="panel" aria-labelledby="v-t"><h2 id="v-t" style={h2}>À valider ({tasks?.length ?? 0})</h2>
-      {(tasks ?? []).length === 0 ? <p className="muted">Rien en attente.</p> : (tasks ?? []).map((t) => { const p = t.payload as Record<string, unknown>; return <form key={t.id} action={decideTask} className="panel buy-form"><input type="hidden" name="id" value={t.id} />
-        <p><strong>{t.kind === "reply_draft" ? "Réponse à un client" : "Fiche produit proposée"}</strong> · {t.title} · <span className="muted small">{fmt(t.created_at)}</span></p>
+      {(tasks ?? []).filter((t) => t.status === "pending" || (t.status === "approved" && t.kind === "product_proposal" && typeof (t.payload as Record<string, unknown>).import_id === "string")).length === 0 ? <p className="muted">Rien en attente.</p> : (tasks ?? []).filter((t) => t.status === "pending" || (t.status === "approved" && t.kind === "product_proposal" && typeof (t.payload as Record<string, unknown>).import_id === "string")).map((t) => { const p = t.payload as Record<string, unknown>; const recovery = t.status === "approved"; return <form key={t.id} action={decideTask} className="panel buy-form"><input type="hidden" name="id" value={t.id} />
+        <p><strong>{t.kind === "reply_draft" ? "Réponse à un client" : recovery ? "Reprise d’un brouillon fournisseur" : "Fiche produit proposée"}</strong> · {t.title} · <span className="muted small">{fmt(t.created_at)}</span></p>
         {t.kind === "reply_draft"
           ? <><p className="muted small">À : {String(p.to)}</p><label className="field">Texte à envoyer (modifiable)<textarea className="input" name="body" rows={7} defaultValue={String(p.body ?? "")} /></label></>
-          : <ul><li>Type : {String(p.kind)} · prix : {Number(p.price_eur ?? 0).toFixed(2)} €</li><li>{String(p.summary)}</li>{Array.isArray(p.features) ? p.features.map((f, i) => <li key={i}>{String(f)}</li>) : null}</ul>}
-        <div style={{ display: "flex", gap: ".5rem" }}><button name="op" value="approve" className="btn btn-primary btn-sm">{t.kind === "reply_draft" ? "Envoyer" : "Créer en brouillon"}</button><button name="op" value="reject" className="btn btn-ghost btn-sm">Refuser</button></div></form>; })}
+          : <>{typeof p.supplier_url === "string" ? <p className="notice">Import fournisseur · <a href={p.supplier_url} target="_blank" rel="noreferrer">vérifier la source</a> · le prix vendeur est à fixer manuellement.</p> : null}<ul><li>Type : {String(p.kind)} · prix : {Number(p.price_eur ?? 0).toFixed(2)} €</li><li>{String(p.summary)}</li>{Array.isArray(p.features) ? p.features.map((f, i) => <li key={i}>{String(f)}</li>) : null}</ul></>}
+        <div style={{ display: "flex", gap: ".5rem" }}><button name="op" value="approve" className="btn btn-primary btn-sm">{t.kind === "reply_draft" ? "Envoyer" : recovery ? "Reprendre et finaliser" : "Créer en brouillon"}</button>{!recovery ? <button name="op" value="reject" className="btn btn-ghost btn-sm">Refuser</button> : null}</div></form>; })}
     </section>
 
     <section className="panel" aria-labelledby="j-t"><h2 id="j-t" style={h2}>Journal (25 derniers appels)</h2>

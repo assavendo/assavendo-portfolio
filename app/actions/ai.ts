@@ -1,4 +1,5 @@
 "use server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -11,6 +12,7 @@ import { callChat } from "@/lib/ai/router";
 import { PRESETS, ROLES, scrub, type KeyRow } from "@/lib/ai/policy";
 import { createDraftProduct, proposeProduct, research } from "@/lib/ai/agents";
 import { parseProposal } from "@/lib/ai/guard";
+import { isAllowedImageUrl } from "@/lib/images";
 
 const back = (msg: string, kind: "ok" | "erreur" = "ok"): never => { revalidatePath("/admin/ia"); redirect(`/admin/ia?${kind}=${encodeURIComponent(msg)}`); };
 const id = (f: FormData) => z.string().uuid().parse(f.get("id"));
@@ -83,9 +85,17 @@ export async function askProduct(form: FormData) {
 /** Décision de l'administrateur sur une tâche en attente : c'est ici, et seulement ici, qu'un e-mail part ou qu'un produit est créé. */
 export async function decideTask(form: FormData) {
   const { user } = await requireAdmin(); const db = supabaseAdmin(); const tid = id(form); const op = z.enum(["approve", "reject"]).parse(form.get("op"));
-  const { data: t } = await db.from("ai_tasks").select("*").eq("id", tid).eq("status", "pending").maybeSingle(); if (!t) return back("Tâche introuvable ou déjà traitée.", "erreur");
+  const { data: t } = await db.from("ai_tasks").select("*").eq("id", tid).maybeSingle(); if (!t) return back("Tâche introuvable ou déjà traitée.", "erreur");
   const stamp = { decided_at: new Date().toISOString(), decided_by: user.id };
-  if (op === "reject") { await db.from("ai_tasks").update({ status: "rejected", ...stamp }).eq("id", tid); return back("Proposition refusée."); }
+  const payload = (t.payload && typeof t.payload === "object" ? t.payload : {}) as Record<string, unknown>;
+  const importId = typeof payload.import_id === "string" && /^[0-9a-f-]{36}$/i.test(payload.import_id) ? payload.import_id : null;
+  const resumable = t.status === "approved" && op === "approve" && t.kind === "product_proposal" && importId !== null;
+  if (t.status !== "pending" && !resumable) return back("Tâche introuvable, déjà traitée ou non récupérable.", "erreur");
+  if (op === "reject") {
+    if (importId) await db.from("dropship_imports").update({ status: "rejected", decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at }).eq("id", importId).eq("status", "needs_review");
+    await db.from("ai_tasks").update({ status: "rejected", ...stamp }).eq("id", tid).eq("status", "pending");
+    return back("Proposition refusée.");
+  }
   if (t.kind === "reply_draft") {
     const body = z.string().trim().min(5).max(3000).safeParse(form.get("body")); if (!body.success) return back("Réponse vide ou trop longue.", "erreur");
     const p = t.payload as { to: string; subject: string };
@@ -97,6 +107,39 @@ export async function decideTask(form: FormData) {
   }
   if (t.kind === "product_proposal") {
     const p = parseProposal(JSON.stringify(t.payload)); if (!p.ok) return back(p.error, "erreur");
+    if (importId) {
+      const { data: source } = await db.from("dropship_imports").select("id,status,rights_confirmed,images,product_id").eq("id", importId).maybeSingle();
+      if (!source || !source.rights_confirmed) return back("Import absent ou droits non confirmés; aucun produit n'a été créé.", "erreur");
+      if (source.product_id) {
+        if (source.status !== "approved" && source.status !== "needs_review") return back("L'import lié a changé d'état; vérifiez-le avant toute reprise.", "erreur");
+        if (source.status === "needs_review") {
+          const { error: reconcileError } = await db.from("dropship_imports").update({ status: "approved", decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at }).eq("id", importId);
+          if (reconcileError) return back("Le brouillon existe, mais le lien de reprise n'a pas pu être réparé.", "erreur");
+        }
+        await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: source.product_id, import_id: importId } }).eq("id", tid).in("status", ["pending", "approved"]);
+        return back("Le brouillon existant a été relié et la tâche finalisée; aucune copie n'a été créée.");
+      }
+      if (source.status !== "needs_review") return back("L'import n'est plus en attente de vérification; aucun produit n'a été créé.", "erreur");
+
+      const priorResult = (t.result && typeof t.result === "object" ? t.result : {}) as Record<string, unknown>;
+      const reservedId = typeof priorResult.product_id === "string" && /^[0-9a-f-]{36}$/i.test(priorResult.product_id) ? priorResult.product_id : null;
+      const pid = t.status === "approved" ? reservedId : randomUUID();
+      if (!pid) return back("La tâche réservée ne contient pas d'identifiant reprenable; intervention requise.", "erreur");
+      if (t.status === "pending") {
+        const { data: claimed, error: claimError } = await db.from("ai_tasks").update({ status: "approved", ...stamp, result: { product_id: pid, import_id: importId } }).eq("id", tid).eq("status", "pending").select("id").maybeSingle();
+        if (claimError || !claimed) return back("Cette proposition a déjà été prise en charge.", "erreur");
+      }
+
+      const sourceImages = (Array.isArray(source.images) ? source.images : []) as { url?: string; alt?: string; credit?: string; kind?: string }[];
+      const premium = sourceImages.find((image) => image.kind === "premium" && image.url && isAllowedImageUrl(image.url));
+      const createdId = await createDraftProduct({ ...p.value, kind: "physical", price_eur: 0 }, { supplier: true, productId: pid, images: premium ? [{ url: premium.url!, alt: premium.alt || `Photo du produit ${p.value.title}`, credit: premium.credit }] : [] });
+      if (!createdId) return back("Produit non créé; l'identifiant réservé est conservé pour reprendre sans doublon.", "erreur");
+      const { data: linked, error: linkError } = await db.from("dropship_imports").update({ status: "approved", product_id: createdId, decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at, error: null }).eq("id", importId).eq("status", "needs_review").select("id").maybeSingle();
+      if (linkError || !linked) return back("Le brouillon est conservé avec un identifiant réservé; relancez l'approbation pour terminer le lien.", "erreur");
+      await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: createdId, import_id: importId } }).eq("id", tid).eq("status", "approved");
+      revalidatePath("/admin/dropshipping"); revalidatePath("/admin/produits"); revalidatePath("/boutique"); revalidatePath("/");
+      return back("Produit physique créé en brouillon à 0 €; définissez prix, stock et livraison avant publication.");
+    }
     const pid = await createDraftProduct(p.value); if (!pid) return back("Produit non créé.", "erreur");
     await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: pid } }).eq("id", tid);
     return back("Produit créé en brouillon. Complétez-le puis publiez-le depuis « Produits ».");

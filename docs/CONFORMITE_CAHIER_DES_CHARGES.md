@@ -37,7 +37,7 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Avis vérifiés d'acheteurs | 🟡 | Existant conservé ; pas de campagne d'avis post-achat |
 
 ## Hors périmètre de ce site (autres projets ou décisions)
-⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · marketplace de vendeurs tiers et paiements de commissions · fournisseurs/dropshipping automatisés · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt).
+⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · marketplace de vendeurs tiers et paiements de commissions · synchronisation automatique du stock/fulfillment fournisseur · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt). Import fournisseur assisté par IA : 🟡 voir la section Centre IA; la décision reste humaine.
 ❓ Décisions du propriétaire : pays vendables au-delà de la France, régime de TVA, transporteurs et tarifs, familles réglementées à ouvrir, politique de retour par catégorie, fournisseurs.
 
 ## Centre IA (`/admin/ia`)
@@ -49,6 +49,9 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Rôles par clé et par agent | ✅ | général, support, recherche, catalogue |
 | Réponses automatiques aux clients | ✅ | Brouillon à valider par défaut ; mode auto limité par des contrôles (pas de lien externe, e-mail, remboursement, remise) |
 | Recherche de produits, ajout sur ordre | ✅ | Note de recherche en lecture seule ; fiche proposée puis créée en brouillon seulement après approbation |
+| Import depuis une page fournisseur publique | 🟡 | Code ajouté : HTTPS, robots.txt, contrôles SSRF/tailles, provenance, consentement de droits, proposition humaine; création en brouillon à 0 € uniquement après approbation. Déploiement et test fournisseur réel restant. |
+| Image produit premium via IA | 🟡 | Endpoint OpenAI Image Edits facultatif, stocké dans `media`; clé OpenAI active et quota requis; facturation fournisseur possible; contrôle humain de fidélité avant publication. |
+| Synchronisation fournisseur, stock et transmission de commande | ⛔ | Non implémenté; aucun achat ou envoi de commande automatique. Nécessite un connecteur autorisé et des choix opérationnels du propriétaire. |
 | Autorisations et limites | ✅ | Interrupteur général (IA coupées par défaut), plafond d'appels/jour, liste blanche d'actions appliquée par le code, journal |
 | Manus (API par tâches asynchrones) | ❌ | Adaptateur dédié à écrire |
 | Autres actions automatisées (modifier prix, stock, publier) | ⛔ | Volontairement non autorisées pour les agents |

@@ -19,6 +19,9 @@ test("robots.txt", () => {
   assert.equal(robotsRulesAllow("User-agent: *\nDisallow: /prive", "/prive/a"), false);
   assert.equal(robotsRulesAllow("User-agent: *\nDisallow: /prive", "/public"), true);
   assert.equal(robotsRulesAllow("User-agent: *\nDisallow: /\nAllow: /ok", "/ok/x"), true);
+  assert.equal(robotsRulesAllow("User-agent: *\nDisallow: /*/private", "/products/private/item"), false);
+  assert.equal(robotsRulesAllow("User-agent: *\nDisallow: /*.pdf$", "/files/manual.pdf"), false);
+  assert.equal(robotsRulesAllow("User-agent: *\nDisallow: /*/private\nAllow: /products/private", "/products/private"), true);
   assert.equal(robotsRulesAllow("User-agent: autre\nDisallow: /", "/"), true);
 });
 test("en-têtes de sécurité", () => {

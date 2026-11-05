@@ -81,16 +81,17 @@ function once(url: URL, method: "GET" | "HEAD", maxBytes: number, idleMs: number
   });
 }
 
-export type SafeFetchOptions = { method?: "GET" | "HEAD"; maxBytes?: number; timeoutMs?: number; totalTimeoutMs?: number; maxRedirects?: number };
+export type SafeFetchOptions = { method?: "GET" | "HEAD"; maxBytes?: number; timeoutMs?: number; totalTimeoutMs?: number; maxRedirects?: number; httpsOnly?: boolean };
 
 /**
  * Lecture publique d'une page : adresses validées à la connexion ET à chaque redirection, taille plafonnée,
  * délai d'inactivité (timeoutMs) ET délai total (totalTimeoutMs). Un serveur qui refuse HEAD est réinterrogé en GET (en-têtes seulement).
  */
 export async function safeFetch(input: string, opts: SafeFetchOptions = {}): Promise<SafeResponse> {
-  const { method = "GET", maxBytes = 1_500_000, timeoutMs = 8000, totalTimeoutMs = 15_000, maxRedirects = 4 } = opts;
+  const { method = "GET", maxBytes = 1_500_000, timeoutMs = 8000, totalTimeoutMs = 15_000, maxRedirects = 4, httpsOnly = false } = opts;
   const signal = AbortSignal.timeout(totalTimeoutMs);
   let url = parseTarget(input);
+  if (httpsOnly && url.protocol !== "https:") throw new FetchRefused("HTTPS obligatoire");
   const redirects: string[] = [];
   for (let i = 0; i <= maxRedirects; i++) {
     let r = await once(url, method, maxBytes, timeoutMs, signal);
@@ -99,6 +100,7 @@ export async function safeFetch(input: string, opts: SafeFetchOptions = {}): Pro
     if (r.status >= 300 && r.status < 400 && loc) {
       redirects.push(url.toString());
       url = parseTarget(new URL(loc, url).toString());
+      if (httpsOnly && url.protocol !== "https:") throw new FetchRefused("Redirection HTTPS vers HTTP refusée");
       continue;
     }
     return { url: url.toString(), ...r, redirects };
@@ -126,6 +128,22 @@ export function robotsRulesAllow(txt: string, path: string): boolean {
     else if (applies && key === "allow" && val) allows.push(val);
   }
   if (!anyGroup) return true;
-  const longest = (rules: string[]) => rules.filter((r) => path.startsWith(r.replace(/\*$/, ""))).reduce((m, r) => Math.max(m, r.length), -1);
-  return longest(allows) >= longest(disallows);
+  if (path.length > 8192 || disallows.some((rule) => rule.length > 512)) return false;
+  const boundedAllows = allows.filter((rule) => rule.length <= 512);
+  const matches = (rule: string) => {
+    const anchored = rule.endsWith("$");
+    const pattern = (anchored ? rule.slice(0, -1) : rule).replace(/\*+/g, "*") + (anchored ? "" : "*");
+    let p = 0; let v = 0; let star = -1; let retry = 0;
+    while (v < path.length) {
+      if (p < pattern.length && pattern[p] === path[v]) { p++; v++; continue; }
+      if (p < pattern.length && pattern[p] === "*") { star = p++; retry = v; continue; }
+      if (star >= 0) { p = star + 1; v = ++retry; continue; }
+      return false;
+    }
+    while (p < pattern.length && pattern[p] === "*") p++;
+    return p === pattern.length;
+  };
+  const specificity = (rule: string) => rule.replace(/[\*$]/g, "").length;
+  const longest = (rules: string[]) => rules.filter(matches).reduce((m, r) => Math.max(m, specificity(r)), -1);
+  return longest(boundedAllows) >= longest(disallows);
 }
