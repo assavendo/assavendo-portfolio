@@ -5,6 +5,8 @@ import { verifyTurnstile } from "@/lib/turnstile";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { esc, sendEmail } from "@/lib/email";
 import { formValues } from "@/lib/form";
+import { after } from "next/server";
+import { draftReply } from "@/lib/ai/agents";
 
 /** `values` : saisies renvoyées au formulaire en cas d'erreur, pour qu'aucune information ne soit perdue. */
 export type FormState = { ok: boolean; message: string; values?: Record<string, string> };
@@ -26,10 +28,12 @@ export async function submitContact(_: FormState, form: FormData): Promise<FormS
   if (!(await allow("contact", 5, 3600))) return { ok: false, message: "Trop de messages envoyés depuis votre connexion. Réessayez plus tard ou écrivez-nous directement par e-mail.", values: formValues(form) };
   if (!(await verifyTurnstile(String(form.get("cf-turnstile-response") ?? ""), ip))) return { ok: false, message: "La vérification anti-robot a échoué. Réessayez : votre message est conservé.", values: formValues(form) };
   const { name, email, projectType, message } = parsed.data;
-  const { error } = await supabaseAdmin().from("contact_messages").insert({ name, email: email.toLowerCase(), project_type: projectType || null, message, consent: true });
+  const { data: saved, error } = await supabaseAdmin().from("contact_messages").insert({ name, email: email.toLowerCase(), project_type: projectType || null, message, consent: true }).select("id").single();
   if (error) return { ok: false, message: "Votre message n'a pas pu être enregistré. Réessayez dans un instant : votre message est conservé.", values: formValues(form) };
   const to = process.env.CONTACT_TO_EMAIL;
   if (to) await sendEmail({ to, replyTo: email, subject: `Nouvelle demande de ${name}`, html: `<p><strong>${esc(name)}</strong> &lt;${esc(email)}&gt;${projectType ? ` — ${esc(projectType)}` : ""}</p><p style="white-space:pre-wrap">${esc(message)}</p>` });
   await sendEmail({ to: email, subject: "Votre demande a bien été reçue — Assavendo", html: `<p>Bonjour ${esc(name)},</p><p>Nous avons bien reçu votre demande et vous répondrons personnellement sous deux jours ouvrés.</p><p>Assavendo</p>` });
+  // Brouillon de réponse préparé en arrière-plan si l'agent support est activé (sans effet sinon, et sans jamais retarder ni faire échouer l'envoi).
+  if (saved?.id) after(async () => { try { await draftReply(saved.id); } catch { /* ignoré */ } });
   return { ok: true, message: "Merci, votre message a bien été envoyé. Vous recevrez un accusé de réception par e-mail." };
 }

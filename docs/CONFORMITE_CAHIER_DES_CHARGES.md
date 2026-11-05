@@ -37,5 +37,18 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Avis vérifiés d'acheteurs | 🟡 | Existant conservé ; pas de campagne d'avis post-achat |
 
 ## Hors périmètre de ce site (autres projets ou décisions)
-⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · centre de contrôle IA multi-fournisseurs (mode NO_AI : le commerce fonctionne sans IA) · marketplace de vendeurs tiers et paiements de commissions · fournisseurs/dropshipping automatisés · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt).
+⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · marketplace de vendeurs tiers et paiements de commissions · fournisseurs/dropshipping automatisés · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt).
 ❓ Décisions du propriétaire : pays vendables au-delà de la France, régime de TVA, transporteurs et tarifs, familles réglementées à ouvrir, politique de retour par catégorie, fournisseurs.
+
+## Centre IA (`/admin/ia`)
+
+| Exigence | État | Détail |
+|---|---|---|
+| Ajout sécurisé de plusieurs clés API de plusieurs services et comptes | ✅ | OpenRouter, Groq, DeepSeek, OpenAI et services compatibles ; chiffrées AES-256-GCM, jamais renvoyées au navigateur, tables inaccessibles hors serveur (RLS sans politique) |
+| Bascule automatique si une clé tombe ou atteint sa limite | ✅ | Pause (429, 5xx, réseau), crédit épuisé (402), désactivation (401/403), plafond journalier par clé, priorité et rôles |
+| Rôles par clé et par agent | ✅ | général, support, recherche, catalogue |
+| Réponses automatiques aux clients | ✅ | Brouillon à valider par défaut ; mode auto limité par des contrôles (pas de lien externe, e-mail, remboursement, remise) |
+| Recherche de produits, ajout sur ordre | ✅ | Note de recherche en lecture seule ; fiche proposée puis créée en brouillon seulement après approbation |
+| Autorisations et limites | ✅ | Interrupteur général (IA coupées par défaut), plafond d'appels/jour, liste blanche d'actions appliquée par le code, journal |
+| Manus (API par tâches asynchrones) | ❌ | Adaptateur dédié à écrire |
+| Autres actions automatisées (modifier prix, stock, publier) | ⛔ | Volontairement non autorisées pour les agents |
