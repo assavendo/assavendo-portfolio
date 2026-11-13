@@ -26,6 +26,9 @@ export default async function Compte({ searchParams }: { searchParams: Promise<{
         <li><form action={signOutCustomer}><button className="chip" type="submit">Me déconnecter</button></form></li>
       </nav>
       {sp.erreur === "confirmation" ? <p className="alert alert-err" role="alert">Tapez SUPPRIMER pour confirmer.</p> : null}
+      {sp.erreur === "effacement" ? <p className="alert alert-err" role="alert">Vos données n'ont pas pu être effacées complètement. Aucun compte n'a été supprimé. Réessayez ou contactez-nous.</p> : null}
+      {sp.erreur === "sessions" ? <p className="alert alert-err" role="alert">Impossible de révoquer toutes les sessions. Votre compte n'a pas été supprimé.</p> : null}
+      {sp.erreur === "suppression" ? <p className="alert alert-err" role="alert">Vos données ont été préparées mais la suppression du compte a échoué. Contactez-nous avant de recommencer.</p> : null}
       <h2 style={{ fontSize: "1.4rem" }}>Mes commandes</h2>
       {!orders?.length ? <p className="panel">Aucune commande pour le moment. <Link href="/boutique">Voir la boutique</Link></p> : (
         <div className="table-scroll"><table className="tbl"><thead><tr><th>Commande</th><th>Date</th><th>Statut</th><th>Total</th><th /></tr></thead><tbody>
