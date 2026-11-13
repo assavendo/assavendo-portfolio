@@ -19,6 +19,7 @@ export default async function MfaChallenge({ searchParams }: { searchParams: Pro
       <h1>Vérification administrateur</h1>
       <p className="muted">Ouvrez votre application d'authentification et saisissez le code à 6 chiffres.</p>
       {sp.erreur === "1" ? <p className="alert alert-err" role="alert">Le code fourni est incorrect ou expiré.</p> : null}
+      {sp.erreur === "limite" ? <p className="alert alert-err" role="alert">Trop de tentatives. Réessayez dans quelques minutes.</p> : null}
       <form action={verifyAdminMfa} className="buy-form">
         <input type="hidden" name="next" value={next} />
         <label className="field">Code à 6 chiffres
