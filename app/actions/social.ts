@@ -65,8 +65,15 @@ export async function addReview(_: FormState, form: FormData): Promise<FormState
   const { data: p } = await db.from("products").select("id, allow_reviews").eq("id", parsed.data.productId).eq("status", "published").maybeSingle();
   if (!p || !p.allow_reviews) return { ok: false, message: "Les avis sont fermés pour ce produit.", values: formValues(form) };
   // « Achat vérifié » : posé UNIQUEMENT côté serveur, d'après une commande payée liée à ce visiteur.
-  const { data: bought } = await db.from("orders").select("id").eq("product_id", p.id).eq("visitor_id", vid).eq("status", "paid").limit(1).maybeSingle();
-  const { error } = await db.from("product_reviews").insert({ product_id: p.id, visitor_id: vid, verified_purchase: !!bought, author_name: parsed.data.name, rating: parsed.data.rating, body: parsed.data.body, status: "pending" });
+  // Les commandes multi-produits n'utilisent plus orders.product_id : on vérifie donc les lignes order_items.
+  const { data: paidOrders } = await db.from("orders").select("id").eq("visitor_id", vid).eq("status", "paid").order("paid_at", { ascending: false }).limit(100);
+  const orderIds = (paidOrders ?? []).map((order) => order.id);
+  let bought = null;
+  if (orderIds.length) {
+    const { data: boughtItem } = await db.from("order_items").select("id").eq("product_id", p.id).in("order_id", orderIds).limit(1).maybeSingle();
+    bought = boughtItem;
+  }
+  const { error } = await db.from("product_reviews").insert({ product_id: p.id, visitor_id: vid, verified_purchase: Boolean(bought), author_name: parsed.data.name, rating: parsed.data.rating, body: parsed.data.body, status: "pending" });
   if (error?.code === "23505") return { ok: false, message: "Vous avez déjà donné votre avis sur ce produit.", values: formValues(form) };
   if (error) return { ok: false, message: "Votre avis n'a pas pu être enregistré.", values: formValues(form) };
   return { ok: true, message: "Merci, votre avis sera publié après vérification." };
