@@ -1,5 +1,5 @@
 "use server";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -98,23 +98,57 @@ export async function saveSettings(form: FormData) {
 }
 
 export async function saveAgent(form: FormData) {
-  await requireAdmin();
+  const { user } = await requireAdmin();
   const p = z.object({ slug: z.string().trim().min(2).max(80), autonomy: z.enum(["draft", "auto"]), system_prompt: z.string().trim().min(20).max(8000) }).safeParse(Object.fromEntries(form));
   if (!p.success) return back("Consigne trop courte ou réglage invalide.", "erreur");
   const allowAuto = p.data.slug === "support" || p.data.slug === "customer_support";
   const autonomy = allowAuto ? p.data.autonomy : "draft";
   const db = supabaseAdmin();
+  const { data: latestVersion } = await db.from("ai_agent_versions").select("version").eq("agent_slug", p.data.slug).eq("environment", "production").order("version", { ascending: false }).limit(1).maybeSingle();
+  const nextVersion = Number(latestVersion?.version ?? 0) + 1;
+  const objective = z.string().trim().max(500).catch("").parse(form.get("objective"));
+  const autonomyLevel = z.coerce.number().int().min(0).max(4).catch(1).parse(form.get("autonomy_level"));
+  const changelog = z.string().trim().max(1000).catch("").parse(form.get("changelog"));
+  const checksum = createHash("sha256").update(p.data.system_prompt, "utf8").digest("hex");
+
+  const { error: versionError } = await db.from("ai_agent_versions").insert({
+    agent_slug: p.data.slug,
+    version: nextVersion,
+    objective,
+    system_prompt: p.data.system_prompt,
+    environment: "production",
+    checksum,
+    changelog: changelog || "Mise à jour de gouvernance par administrateur.",
+    active: true,
+    created_by: user.id,
+  });
+  if (versionError) return back("Nouvelle version de prompt non enregistrée.", "erreur");
+
+  await db.from("ai_agent_versions").update({ active: false }).eq("agent_slug", p.data.slug).eq("environment", "production").neq("version", nextVersion);
+
   const { error } = await db.from("ai_agents").update({
     enabled: form.get("enabled") === "on",
     autonomy,
     system_prompt: p.data.system_prompt,
-    version: z.coerce.number().int().min(1).max(100000).catch(1).parse(form.get("version")),
-    autonomy_level: z.coerce.number().int().min(0).max(4).catch(1).parse(form.get("autonomy_level")),
-    objective: z.string().trim().max(500).catch("").parse(form.get("objective")),
+    version: nextVersion,
+    autonomy_level: autonomyLevel,
+    objective,
     updated_at: new Date().toISOString()
   }).eq("slug", p.data.slug);
-  if (error) return back("Agent non enregistré.", "erreur");
-  return back("Agent enregistré.");
+  if (error) return back("Agent non enregistré après versionnement; la nouvelle version reste conservée pour audit.", "erreur");
+
+  await db.from("ai_audit_logs").insert({
+    actor_type: "user",
+    actor_id: user.id,
+    user_id: user.id,
+    service: "ai-control-plane",
+    action: "version_agent_prompt",
+    resource_type: "ai_agent",
+    resource_id: p.data.slug,
+    policy_decision: "ALLOW",
+    metadata: { version: nextVersion, checksum, autonomy, autonomyLevel },
+  });
+  return back(`Agent enregistré, version ${nextVersion} activée.`);
 }
 
 export async function askResearch(form: FormData) {
