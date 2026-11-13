@@ -201,6 +201,13 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
       <h2 style={h2}>5. Tools · allowlist</h2>
       <div className="table-scroll"><table className="tbl"><thead><tr><th>Outil</th><th>Risque</th><th>Approval</th><th>État</th><th>Actions</th></tr></thead><tbody>
       {(tools ?? []).map((t) => <tr key={t.slug}><td><strong>{t.name}</strong><br/><span className="muted small">{t.slug}</span></td><td>{t.risk_level}</td><td>{t.requires_approval ? "Oui" : "Non"}</td><td>{t.enabled ? "actif" : "bloqué"}</td><td><form action={toggleAiTool}><input type="hidden" name="slug" value={t.slug}/><input type="hidden" name="enabled" value={t.enabled ? "false" : "true"}/><button className="btn btn-ghost btn-sm">{t.enabled ? "Désactiver" : "Activer"}</button></form></td></tr>)}</tbody></table></div>
+      <h3 style={{ fontSize: "1.05rem", marginTop: "1rem" }}>Matrice Agent → Outil</h3>
+      <div className="table-scroll"><table className="tbl"><thead><tr><th>Agent</th><th>Outil</th><th>Autorisé</th><th>Action</th></tr></thead><tbody>
+      {(agents ?? []).flatMap((a) => (tools ?? []).map((t) => {
+        const allowed = Boolean((agentTools ?? []).find((x) => x.agent_slug === a.slug && x.tool_slug === t.slug)?.allowed);
+        return <tr key={a.slug + ":" + t.slug}><td>{a.slug}</td><td>{t.slug}</td><td>{allowed ? "oui" : "non"}</td><td><form action={setAgentTool}><input type="hidden" name="agent_slug" value={a.slug}/><input type="hidden" name="tool_slug" value={t.slug}/><input type="hidden" name="allowed" value={allowed ? "false" : "true"}/><button className="btn btn-ghost btn-sm">{allowed ? "Révoquer" : "Autoriser"}</button></form></td></tr>;
+      }))}</tbody></table></div>
+      <p className="muted small">Principe de moindre privilège : le bouton modifie uniquement la relation Agent → Outil. L’activation globale de l’outil reste un contrôle séparé.</p>
     </section>
 
     <section className="panel">
