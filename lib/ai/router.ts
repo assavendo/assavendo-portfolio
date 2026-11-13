@@ -27,8 +27,7 @@ export async function callChat(
   const url = new URL(key.base_url.replace(/\/$/, "") + "/chat/completions");
   if (url.protocol !== "https:") return { status: null, detail: "Adresse non sécurisée refusée" };
   if (key.provider === "custom") {
-    try { await resolvePublicHost(url.hostname); }
-    catch { return { status: null, detail: "Adresse interne refusée" }; }
+    try { await resolvePublicHost(url.hostname); } catch { return { status: null, detail: "Adresse interne refusée" }; }
   }
   try {
     const res = await fetch(url, {
@@ -51,10 +50,9 @@ export async function callChat(
     try { parsed = JSON.parse(raw) as Record<string, unknown>; } catch { /* provider output is untrusted */ }
     if (!res.ok) {
       const errorObj = parsed.error;
-      const detail =
-        errorObj && typeof errorObj === "object"
-          ? String((errorObj as Record<string, unknown>).message ?? (errorObj as Record<string, unknown>).code ?? "Provider error")
-          : "Provider request failed";
+      const detail = errorObj && typeof errorObj === "object"
+        ? String((errorObj as Record<string, unknown>).message ?? (errorObj as Record<string, unknown>).code ?? "Provider error")
+        : "Provider request failed";
       return { status: res.status, retryAfter, requestId, detail: scrub(detail).slice(0, 240) };
     }
     const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
@@ -85,6 +83,20 @@ function modeAllowsAgent(mode: string, agent: string): boolean {
   return false;
 }
 
+type ModelRow = {
+  id: string;
+  input_usd_per_1m: number | null;
+  output_usd_per_1m: number | null;
+};
+
+function projectedCost(messages: Msg[], maxTokens: number, model: ModelRow | null): number | null {
+  if (!model) return null;
+  const estimatedInputTokens = Math.max(1, Math.ceil(messages.reduce((n, m) => n + m.content.length, 0) / 4));
+  const input = (estimatedInputTokens / 1_000_000) * Number(model.input_usd_per_1m ?? 0);
+  const output = (Math.max(1, maxTokens) / 1_000_000) * Number(model.output_usd_per_1m ?? 0);
+  return Number((input + output).toFixed(8));
+}
+
 async function estimateCostUsd(
   db: ReturnType<typeof supabaseAdmin>,
   provider: string,
@@ -99,6 +111,45 @@ async function estimateCostUsd(
   return Number(((input / 1_000_000) * Number(data.input_usd_per_1m ?? 0) + (output / 1_000_000) * Number(data.output_usd_per_1m ?? 0)).toFixed(8));
 }
 
+async function budgetAllows(
+  db: ReturnType<typeof supabaseAdmin>,
+  todayStart: string,
+  agent: string,
+  provider: string,
+  accountId: string | null,
+  projectedUsd: number | null,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (projectedUsd == null) return { ok: true };
+  const scopes = [
+    { type: "global", id: "assavendo" },
+    { type: "provider", id: provider },
+    ...(accountId ? [{ type: "account", id: accountId }] : []),
+    { type: "agent", id: agent },
+  ];
+  const { data: budgets } = await db.from("ai_budgets").select("scope_type,scope_id,daily_limit_usd,warning_percent,restrict_percent,block_percent,enabled").in("scope_type", scopes.map((s) => s.type));
+  const relevant = (budgets ?? []).filter((b) => b.enabled && scopes.some((s) => s.type === b.scope_type && s.id === b.scope_id));
+  if (!relevant.length) return { ok: true };
+
+  const { data: runs } = await db.from("ai_runs").select("agent,provider_slug,account_id,estimated_cost_usd").gte("created_at", todayStart).not("estimated_cost_usd", "is", null).limit(5000);
+  for (const budget of relevant) {
+    const matches = (runs ?? []).filter((r) =>
+      budget.scope_type === "global"
+      || (budget.scope_type === "provider" && r.provider_slug === budget.scope_id)
+      || (budget.scope_type === "account" && r.account_id === budget.scope_id)
+      || (budget.scope_type === "agent" && r.agent === budget.scope_id)
+    );
+    const spent = matches.reduce((sum, r) => sum + Number(r.estimated_cost_usd ?? 0), 0);
+    const limit = budget.daily_limit_usd == null ? null : Number(budget.daily_limit_usd);
+    if (limit != null && spent + projectedUsd > limit) {
+      return { ok: false, reason: `Budget ${budget.scope_type}:${budget.scope_id} atteint.` };
+    }
+    if (limit && spent / limit >= Number(budget.restrict_percent ?? 85) / 100) {
+      return { ok: false, reason: `Budget ${budget.scope_type}:${budget.scope_id} en zone de restriction.` };
+    }
+  }
+  return { ok: true };
+}
+
 export async function runAgent(
   agent: "support" | "recherche" | "catalogue",
   messages: Msg[],
@@ -110,36 +161,28 @@ export async function runAgent(
     db.from("ai_control_state").select("mode").eq("id", 1).single(),
   ]);
   const mode = String(control?.mode ?? (settings?.enabled ? "FULL" : "NO_AI"));
-  if (!settings?.enabled || !modeAllowsAgent(mode, agent)) {
-    return { ok: false, error: `Les IA sont indisponibles en mode ${mode}.`, attempts: 0 };
-  }
+  if (!settings?.enabled || !modeAllowsAgent(mode, agent)) return { ok: false, error: `Les IA sont indisponibles en mode ${mode}.`, attempts: 0 };
 
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
   const { count } = await db.from("ai_runs").select("*", { count: "exact", head: true }).gte("created_at", since.toISOString());
-  if ((count ?? 0) >= Number(settings.daily_call_cap ?? 500)) {
-    return { ok: false, error: "Plafond d'appels du jour atteint.", attempts: 0 };
-  }
+  if ((count ?? 0) >= Number(settings.daily_call_cap ?? 500)) return { ok: false, error: "Plafond d'appels du jour atteint.", attempts: 0 };
 
   const [{ data: rows }, { data: accounts }, { data: providers }] = await Promise.all([
     db.from("ai_keys").select("*").eq("enabled", true),
     db.from("ai_accounts").select("id,provider_slug,credential_type,credential_id,status,allowed_agents").eq("credential_type", "ai_key"),
     db.from("ai_providers").select("slug,enabled,status"),
   ]);
-  const accountByCredential = new Map(
-    (accounts ?? []).filter((a) => a.credential_id).map((a) => [String(a.credential_id), a]),
-  );
+  const accountByCredential = new Map((accounts ?? []).filter((a) => a.credential_id).map((a) => [String(a.credential_id), a]));
   const providerBySlug = new Map((providers ?? []).map((p) => [String(p.slug), p]));
-
   const filteredKeys = ((rows ?? []) as KeyRow[]).filter((key) => {
     const provider = providerBySlug.get(key.provider);
     if (provider && (!provider.enabled || ["disabled", "maintenance", "unavailable"].includes(String(provider.status)))) return false;
     const account = accountByCredential.get(key.id);
-    if (!account) return true; // legacy credential, still governed by the existing key policy
+    if (!account) return true;
     if (account.status !== "active") return false;
     return account.allowed_agents.length === 0 || account.allowed_agents.includes(agent);
   });
-
   const list = specificFirst(candidates(filteredKeys, agent), agent).slice(0, 6);
   if (!list.length) {
     await log(db, agent, null, null, false, 0, null, "Aucune ressource disponible", null, null, null, null, "DENY", false, mode);
@@ -149,11 +192,21 @@ export async function runAgent(
   let attempts = 0;
   let last = "";
   const safeMessages = prepareAiMessages(messages);
+  const maxTokens = opts.maxTokens ?? 800;
 
   for (const k of list) {
     attempts++;
     const t0 = Date.now();
     const account = accountByCredential.get(k.id);
+    const { data: model } = await db.from("ai_models").select("id,input_usd_per_1m,output_usd_per_1m").eq("provider_slug", k.provider).eq("model_key", k.model).maybeSingle();
+    const projected = projectedCost(safeMessages, maxTokens, model);
+    const budget = await budgetAllows(db, since.toISOString(), agent, k.provider, account?.id ? String(account.id) : null, projected);
+    if (!budget.ok) {
+      last = budget.reason ?? "Budget atteint";
+      await log(db, agent, k.id, k.label, false, attempts, 0, last, k.provider, k.model, account?.id ? String(account.id) : null, null, null, "RATE_LIMIT", attempts > 1, mode, model?.id ?? null);
+      continue;
+    }
+
     let apiKey: string;
     try {
       apiKey = decryptSecret(k.secret_enc);
@@ -167,15 +220,15 @@ export async function runAgent(
     if (r.status === 200 && r.text) {
       const cost = await estimateCostUsd(db, k.provider, k.model, r.usage);
       await mark(db, k, { ok: true }, account?.id ? String(account.id) : null);
-      await log(db, agent, k.id, k.label, true, attempts, Date.now() - t0, null, k.provider, k.model, account?.id ? String(account.id) : null, r, cost, "ALLOW", attempts > 1, mode);
+      await log(db, agent, k.id, k.label, true, attempts, Date.now() - t0, null, k.provider, k.model, account?.id ? String(account.id) : null, r, cost, "ALLOW", attempts > 1, mode, model?.id ?? null);
       return { ok: true, text: r.text, keyLabel: k.label, attempts, provider: k.provider, model: k.model, accountId: account?.id ? String(account.id) : null, estimatedCostUsd: cost };
     }
 
-    const f = classifyFailure(r.status, r.retryAfter, scrub(r.detail ?? ""));
-    last = scrub(`${k.label} : ${f.message}`);
-    await mark(db, k, { disable: f.disable, cooldownSec: f.cooldownSec, error: last }, account?.id ? String(account.id) : null);
-    await log(db, agent, k.id, k.label, false, attempts, Date.now() - t0, last, k.provider, k.model, account?.id ? String(account.id) : null, r, null, "ALLOW", attempts > 1, mode);
-    if (!f.retryNext) return { ok: false, error: last, attempts };
+    const failure = classifyFailure(r.status, r.retryAfter, scrub(r.detail ?? ""));
+    last = scrub(`${k.label} : ${failure.message}`);
+    await mark(db, k, { disable: failure.disable, cooldownSec: failure.cooldownSec, error: last }, account?.id ? String(account.id) : null);
+    await log(db, agent, k.id, k.label, false, attempts, Date.now() - t0, last, k.provider, k.model, account?.id ? String(account.id) : null, r, null, "ALLOW", attempts > 1, mode, model?.id ?? null);
+    if (!failure.retryNext) return { ok: false, error: last, attempts };
   }
 
   return { ok: false, error: `Toutes les ressources ont échoué. Dernière erreur : ${last}`, attempts };
@@ -183,72 +236,34 @@ export async function runAgent(
 
 type Db = ReturnType<typeof supabaseAdmin>;
 
-async function mark(
-  db: Db,
-  k: KeyRow,
-  o: { ok?: boolean; disable?: boolean; cooldownSec?: number; error?: string },
-  accountId: string | null,
-) {
+async function mark(db: Db, k: KeyRow, o: { ok?: boolean; disable?: boolean; cooldownSec?: number; error?: string }, accountId: string | null) {
   const today = new Date().toISOString().slice(0, 10);
   const used = (k.used_day === today ? k.used_today : 0) + 1;
+  const now = new Date().toISOString();
   if (o.ok) {
-    await db.from("ai_keys").update({ used_day: today, used_today: used, fail_count: 0, last_error: null, last_ok_at: new Date().toISOString(), cooldown_until: null }).eq("id", k.id);
-    if (accountId) await db.from("ai_accounts").update({ status: "active", last_success: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", accountId);
+    await db.from("ai_keys").update({ used_day: today, used_today: used, fail_count: 0, last_error: null, last_ok_at: now, cooldown_until: null }).eq("id", k.id);
+    await db.from("ai_providers").update({ status: "healthy", health_score: 100, last_health_at: now, last_error: null, updated_at: now }).eq("slug", k.provider);
+    if (accountId) await db.from("ai_accounts").update({ status: "active", last_success: now, updated_at: now }).eq("id", accountId);
     return;
   }
   await db.from("ai_keys").update({
-    used_day: today,
-    used_today: used,
-    fail_count: k.fail_count + 1,
-    last_error: o.error ?? null,
-    ...(o.disable ? { enabled: false } : {}),
-    ...(o.cooldownSec ? { cooldown_until: new Date(Date.now() + o.cooldownSec * 1000).toISOString() } : {}),
+    used_day: today, used_today: used, fail_count: k.fail_count + 1, last_error: o.error ?? null,
+    ...(o.disable ? { enabled: false } : {}), ...(o.cooldownSec ? { cooldown_until: new Date(Date.now() + o.cooldownSec * 1000).toISOString() } : {}),
   }).eq("id", k.id);
-  if (accountId) {
-    await db.from("ai_accounts").update({
-      status: o.disable ? "disabled" : o.cooldownSec ? "rate_limited" : "unavailable",
-      last_failure: new Date().toISOString(),
-      ...(o.cooldownSec ? { last_429: new Date().toISOString() } : {}),
-      updated_at: new Date().toISOString(),
-    }).eq("id", accountId);
-  }
+  if (accountId) await db.from("ai_accounts").update({
+    status: o.disable ? "disabled" : o.cooldownSec ? "rate_limited" : "unavailable",
+    last_failure: now, ...(o.cooldownSec ? { last_429: now } : {}), updated_at: now,
+  }).eq("id", accountId);
 }
 
 async function log(
-  db: Db,
-  agent: string,
-  keyId: string | null,
-  label: string | null,
-  ok: boolean,
-  attempts: number,
-  ms: number | null,
-  error: string | null,
-  provider: string | null,
-  model: string | null,
-  accountId: string | null,
-  response: CallResult | null,
-  estimatedCostUsd: number | null,
-  policyDecision: string,
-  fallbackUsed: boolean,
-  mode: string,
+  db: Db, agent: string, keyId: string | null, label: string | null, ok: boolean, attempts: number, ms: number | null,
+  error: string | null, provider: string | null, model: string | null, accountId: string | null, response: CallResult | null,
+  estimatedCostUsd: number | null, policyDecision: string, fallbackUsed: boolean, mode: string, modelId: string | null,
 ) {
   await db.from("ai_runs").insert({
-    agent,
-    key_id: keyId,
-    key_label: label,
-    ok,
-    attempts,
-    latency_ms: ms,
-    error,
-    provider_slug: provider,
-    model_id: null,
-    account_id: accountId,
-    input_tokens: response?.usage?.prompt_tokens ?? null,
-    output_tokens: response?.usage?.completion_tokens ?? null,
-    estimated_cost_usd: estimatedCostUsd,
-    policy_decision: policyDecision,
-    fallback_used: fallbackUsed,
-    request_id: response?.requestId ?? null,
-    mode,
+    agent, key_id: keyId, key_label: label, ok, attempts, latency_ms: ms, error, provider_slug: provider, model_id: modelId,
+    account_id: accountId, input_tokens: response?.usage?.prompt_tokens ?? null, output_tokens: response?.usage?.completion_tokens ?? null,
+    estimated_cost_usd: estimatedCostUsd, policy_decision: policyDecision, fallback_used: fallbackUsed, request_id: response?.requestId ?? null, mode,
   });
 }
