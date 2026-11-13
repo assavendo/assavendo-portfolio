@@ -19,18 +19,20 @@ const adminNext = (value: FormDataEntryValue | null) => {
   return /^\/admin(?:\/[a-z0-9/_-]+)?$/.test(v) ? v : "/admin";
 };
 
-export async function verifyAdminMfa(_: unknown, form: FormData): Promise<{ error?: string }> {
+export async function verifyAdminMfa(form: FormData) {
   const { sb } = await requireAdminBase();
-  const code = z.string().regex(/^\d{6}$/, "Saisissez le code à 6 chiffres.").parse(String(form.get("code") ?? ""));
   const next = adminNext(form.get("next"));
-  if (!(await allow("admin-mfa", 6, 600))) return { error: "Trop de tentatives. Réessayez dans quelques minutes." };
+  const fail = () => redirect("/admin/mfa?next=" + encodeURIComponent(next) + "&erreur=1");
+  const parsed = z.string().regex(/^\d{6}$/, "Saisissez le code à 6 chiffres.").safeParse(String(form.get("code") ?? ""));
+  if (!parsed.success) return fail();
+  if (!(await allow("admin-mfa", 6, 600))) return redirect("/admin/mfa?next=" + encodeURIComponent(next) + "&erreur=limite");
   const { data: factors, error: factorsError } = await sb.auth.mfa.listFactors();
   const factor = (factors?.totp ?? []).find((f) => f.status === "verified");
-  if (factorsError || !factor) return { error: "Aucun second facteur administrateur actif." };
+  if (factorsError || !factor) return fail();
   const { data: challenge, error: challengeError } = await sb.auth.mfa.challenge({ factorId: factor.id });
-  if (challengeError || !challenge) return { error: "Impossible de préparer la vérification MFA. Réessayez." };
-  const { error } = await sb.auth.mfa.verify({ factorId: factor.id, challengeId: challenge.id, code });
-  if (error) return { error: "Code MFA incorrect ou expiré." };
+  if (challengeError || !challenge) return fail();
+  const { error } = await sb.auth.mfa.verify({ factorId: factor.id, challengeId: challenge.id, code: parsed.data });
+  if (error) return fail();
   redirect(next);
 }
 
