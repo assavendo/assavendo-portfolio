@@ -185,7 +185,7 @@ export async function runAgent(
   });
   const list = specificFirst(candidates(filteredKeys, agent), agent).slice(0, 6);
   if (!list.length) {
-    await log(db, agent, null, null, false, 0, null, "Aucune ressource disponible", null, null, null, null, "DENY", false, mode);
+    await log(db, agent, null, null, false, 0, null, "Aucune ressource disponible", null, null, null, null, null, "DENY", false, mode, null);
     return { ok: false, error: "Aucune ressource IA disponible pour ce rôle.", attempts: 0 };
   }
 
