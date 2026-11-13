@@ -10,7 +10,7 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Taxonomie §6/7/92 (22 familles, 143 rayons), attributs dynamiques par catégorie | ✅ | `content/taxonomy.ts` → graines SQL vérifiées en CI |
 | Familles réglementées visibles mais non vendables par défaut (§92.3) | ✅ | Beauté, santé, enfants, alimentation : publication bloquée (formulaire, trigger SQL, achat) |
 | Produits : marque, prix barré réel, SKU, GTIN, poids, origine, délais, garantie, retour, livraison | ✅ | Contraintes SQL (prix barré > prix) |
-| Variantes avec stock et prix propres | 🟡 | Base, panier, paiement, stock : faits. Écran d'édition des variantes dans l'admin : à ajouter (création par SQL en attendant) |
+| Variantes avec stock et prix propres | ✅ | Base, panier, paiement et stock : faits. Éditeur admin complet : création, modification, suppression, SKU, options, prix, stock, ordre et activation. |
 | Recherche : accents, synonymes, fautes simples, filtres, facettes, tri, URL partageable | ✅ | Côté application, 15 tests unitaires. Pas de moteur dédié (OpenSearch hors périmètre) |
 | Collections éditoriales | 🟡 | Tables et lecture publique faites ; pages et édition admin non faites |
 | Pas de faux avis, fausse rareté, faux badge, fausse remise | ✅ | Aucun compteur artificiel ; « stock faible » seulement si le stock suivi est réel |
@@ -53,5 +53,5 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Image produit premium via IA | 🟡 | Endpoint OpenAI Image Edits facultatif, stocké dans `media`; clé OpenAI active et quota requis; facturation fournisseur possible; contrôle humain de fidélité avant publication. |
 | Synchronisation fournisseur, stock et transmission de commande | ⛔ | Non implémenté; aucun achat ou envoi de commande automatique. Nécessite un connecteur autorisé et des choix opérationnels du propriétaire. |
 | Autorisations et limites | ✅ | Interrupteur général (IA coupées par défaut), plafond d'appels/jour, liste blanche d'actions appliquée par le code, journal |
-| Manus (API par tâches asynchrones) | ❌ | Adaptateur dédié à écrire |
+| Manus (API par tâches asynchrones) | ✅ | Adaptateur v2 dédié : santé, création de tâches asynchrones, détail, messages, envoi de message et arrêt ; credentials désactivés par défaut jusqu'au test d'un compte. |
 | Autres actions automatisées (modifier prix, stock, publier) | ⛔ | Volontairement non autorisées pour les agents |
