@@ -46,6 +46,7 @@ export function Header({ families }: { families: NavFamily[] }) {
           </details>
           <Link href="/numerique" aria-current={cur("/numerique")}>Numérique</Link>
           <Link href="/promotions" aria-current={cur("/promotions")}>Promotions</Link>
+          <Link href="/collections" aria-current={cur("/collections")}>Collections</Link>
           <details className="nav-drop">
             <summary aria-current={inServices ? "true" : undefined}>Services &amp; solutions</summary>
             <div className="drop-panel">{services.map((s) => <Link key={s.href} href={s.href}>{s.label}</Link>)}</div>
