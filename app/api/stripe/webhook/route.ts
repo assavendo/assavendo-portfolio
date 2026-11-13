@@ -44,7 +44,12 @@ export async function POST(req: Request) {
         const { data: refunded, error } = await db.from("orders").update({ status: "refunded", download_token: null }).eq("payment_intent_id", pi).select("id");
         if (error) throw error;
         const ids = (refunded ?? []).map((o) => o.id);
-        if (ids.length) { const { error: ie } = await db.from("order_items").update({ download_token: null }).in("order_id", ids); if (ie) throw ie; }
+        if (ids.length) {
+          const { error: ie } = await db.from("order_items").update({ download_token: null }).in("order_id", ids);
+          if (ie) throw ie;
+          const { error: re } = await db.from("return_requests").update({ status: "refunded", updated_at: new Date().toISOString() }).in("order_id", ids).eq("status", "received");
+          if (re) throw re;
+        }
       }
     }
     const { error: recErr } = await db.from("stripe_events").upsert({ event_id: event.id, event_type: event.type }, { onConflict: "event_id", ignoreDuplicates: true });
