@@ -49,10 +49,11 @@ begin
     raise exception 'Statut de retour invalide.' using errcode = '22023';
   end if;
 
-  select rr.id, rr.status, oi.product_id, oi.variant_id, oi.qty, oi.kind
+  select rr.id, rr.status, o.status as order_status, oi.product_id, oi.variant_id, oi.qty, oi.kind
     into r
   from public.return_requests rr
   join public.order_items oi on oi.id = rr.order_item_id
+  join public.orders o on o.id = rr.order_id
   where rr.id = p_id
   for update;
 
@@ -62,11 +63,14 @@ begin
   if old_status = 'requested' and new_status not in ('approved','refused') then
     raise exception 'Une demande en attente doit être acceptée ou refusée.' using errcode = 'P0001';
   end if;
-  if old_status = 'approved' and new_status not in ('received','refused','refunded') then
+  if old_status = 'approved' and new_status not in ('received','refused') then
     raise exception 'Transition de retour invalide.' using errcode = 'P0001';
   end if;
   if old_status = 'received' and new_status <> 'refunded' then
     raise exception 'Un retour reçu ne peut être que remboursé ensuite.' using errcode = 'P0001';
+  end if;
+  if new_status = 'refunded' and r.order_status <> 'refunded' then
+    raise exception 'Le remboursement Stripe doit être confirmé avant de clôturer le retour.' using errcode = 'P0001';
   end if;
   if old_status in ('refused','refunded') and new_status <> old_status then
     raise exception 'Ce retour est dans un état final.' using errcode = 'P0001';
