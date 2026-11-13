@@ -260,3 +260,47 @@ export async function setAgentTool(form: FormData) {
   await audit({ action: allowed ? "allow_agent_tool" : "deny_agent_tool", actorId: user.id, resourceType: "ai_agent_tool", resourceId: agentSlug + ":" + toolSlug });
   redirectBack("Permission outil enregistrée.");
 }
+
+
+export async function saveAiWorkflow(form: FormData) {
+  const { user } = await requireAdmin();
+  const slug = z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80).parse(form.get("slug"));
+  const name = z.string().trim().min(2).max(120).parse(form.get("name"));
+  const description = z.string().trim().max(1000).parse(form.get("description") ?? "");
+  const triggerType = z.enum(["manual", "event", "schedule", "condition"]).parse(form.get("trigger_type"));
+  const status = z.enum(["draft", "active", "paused", "disabled", "archived"]).parse(form.get("status"));
+  const intervalMinutes = z.coerce.number().int().min(1).max(1440).parse(form.get("interval_minutes") ?? "60");
+  const definition = { interval_minutes: intervalMinutes };
+  const db = supabaseAdmin();
+  const { data: latest } = await db.from("ai_workflows").select("version").eq("slug", slug).order("version", { ascending: false }).limit(1).maybeSingle();
+  const version = Number(latest?.version ?? 0) + 1;
+  const now = new Date();
+  const { data: workflow, error } = await db.from("ai_workflows").insert({
+    slug, version, name, description, trigger_type, status, definition,
+    next_run_at: status === "active" && triggerType === "schedule" ? new Date(now.getTime() + intervalMinutes * 60000).toISOString() : null,
+    created_by: user.id,
+  }).select("id").single();
+  if (error || !workflow) return redirectBack("Workflow non enregistré.", "erreur");
+  const action = String(form.get("step_action") ?? "noop");
+  const agent = String(form.get("agent_slug") ?? "");
+  const tool = String(form.get("tool_slug") ?? "");
+  const policy = String(form.get("policy_slug") ?? "");
+  const prompt = String(form.get("prompt") ?? "").trim().slice(0, 4000);
+  const requiresApproval = form.get("required_approval") === "on";
+  const { error: stepError } = await db.from("ai_workflow_steps").insert({
+    workflow_id: workflow.id, step_key: "main", step_order: 1, action,
+    agent_slug: agent || null, tool_slug: tool || null, policy_slug: policy || null,
+    required_approval: requiresApproval, config: { prompt },
+  });
+  if (stepError) {
+    await db.from("ai_workflows").delete().eq("id", workflow.id);
+    return redirectBack("Workflow non enregistré : étape invalide.", "erreur");
+  }
+  await db.from("ai_audit_logs").insert({
+    actor_type: "user", actor_id: user.id, user_id: user.id, service: "ai-control-plane",
+    action: "create_workflow", resource_type: "ai_workflow", resource_id: workflow.id,
+    policy_decision: requiresApproval ? "REQUIRE_APPROVAL" : "ALLOW",
+    metadata: { slug, version, triggerType, status, step_action: action },
+  });
+  redirectBack("Workflow IA enregistré.");
+}
