@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { decryptSecret } from "@/lib/ai/crypto";
@@ -11,7 +12,7 @@ import { scrub, type KeyRow } from "@/lib/ai/policy";
 
 const redirectBack = (message: string, kind: "ok" | "erreur" = "ok"): never => {
   revalidatePath("/admin/ia");
-  throw new Error(`${kind}:${message}`);
+  redirect(`/admin/ia?${kind}=${encodeURIComponent(message)}`);
 };
 
 async function audit(input: {
