@@ -17,9 +17,14 @@ export function MfaEnrollment() {
       const sb = supabaseBrowser();
       const { data: factors, error: listError } = await sb.auth.mfa.listFactors();
       if (listError) throw listError;
-      for (const factor of factors?.totp ?? []) {
-        if (String(factor.status) === "unverified") {\n          const { error: unenrollError } = await sb.auth.mfa.unenroll({ factorId: factor.id });\n          if (unenrollError) throw unenrollError;\n        }
+
+      for (const factor of factors?.all ?? []) {
+        if (factor.factor_type === "totp" && factor.status === "unverified") {
+          const { error: unenrollError } = await sb.auth.mfa.unenroll({ factorId: factor.id });
+          if (unenrollError) throw unenrollError;
+        }
       }
+
       const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Assavendo Admin" });
       if (error || !data?.id || !data.totp) throw error ?? new Error("Configuration MFA impossible.");
       setSetup({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret, uri: data.totp.uri });
