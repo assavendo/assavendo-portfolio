@@ -16,12 +16,12 @@ import { siteUrl } from "@/lib/env";
 export type AdminState = { error?: string; ok?: string; values?: Record<string, string> };
 const adminNext = (value: FormDataEntryValue | null) => {
   const v = String(value ?? "");
-  return /^\\/admin(?:\\/[a-z0-9/_-]+)?$/.test(v) ? v : "/admin";
+  return /^\/admin(?:\/[a-z0-9/_-]+)?$/.test(v) ? v : "/admin";
 };
 
 export async function verifyAdminMfa(_: unknown, form: FormData): Promise<{ error?: string }> {
   const { sb } = await requireAdminBase();
-  const code = z.string().regex(/^\\d{6}$/, "Saisissez le code à 6 chiffres.").parse(String(form.get("code") ?? ""));
+  const code = z.string().regex(/^\d{6}$/, "Saisissez le code à 6 chiffres.").parse(String(form.get("code") ?? ""));
   const next = adminNext(form.get("next"));
   if (!(await allow("admin-mfa", 6, 600))) return { error: "Trop de tentatives. Réessayez dans quelques minutes." };
   const { data: factors, error: factorsError } = await sb.auth.mfa.listFactors();
