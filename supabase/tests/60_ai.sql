@@ -3,7 +3,7 @@ create or replace function pg_temp.assert(ok boolean, msg text) returns void lan
 begin if not ok then raise exception 'ÉCHEC : %', msg; end if; end $$;
 
 select pg_temp.assert((select enabled = false from public.ai_settings where id = 1), 'IA désactivée par défaut');
-select pg_temp.assert((select count(*) = 3 and bool_and(not enabled) and bool_and(autonomy = 'draft') from public.ai_agents), 'trois agents, désactivés, en brouillon');
+select pg_temp.assert((select count(*) >= 13 and bool_and(not enabled) and bool_and(autonomy = 'draft') from public.ai_agents), 'agents IA présents, désactivés, en brouillon');
 
 insert into auth.users (id) values ('66666666-6666-6666-6666-666666666661') on conflict do nothing;
 insert into public.ai_keys (provider, label, base_url, model, secret_enc) values ('groq', 'Groq test', 'https://api.groq.com/openai/v1', 'm', 'chiffre');
