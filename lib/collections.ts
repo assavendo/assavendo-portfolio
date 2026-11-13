@@ -1,5 +1,6 @@
 import { getPublishedProducts } from "@/lib/data";
 import { supabasePublic } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/env";
 import type { Product } from "@/lib/types";
 
 export type EditorialCollection = {
@@ -16,6 +17,7 @@ export type EditorialCollectionWithProducts = EditorialCollection & {
 };
 
 export async function getPublishedCollections(): Promise<EditorialCollection[]> {
+  if (!isSupabaseConfigured) return [];
   const { data, error } = await supabasePublic()
     .from("collections")
     .select("id,slug,title,description,status,sort")
@@ -27,6 +29,7 @@ export async function getPublishedCollections(): Promise<EditorialCollection[]> 
 }
 
 export async function getPublishedCollectionBySlug(slug: string): Promise<EditorialCollectionWithProducts | null> {
+  if (!isSupabaseConfigured) return null;
   const { data: collection, error } = await supabasePublic()
     .from("collections")
     .select("id,slug,title,description,status,sort")
