@@ -324,6 +324,86 @@ export async function deleteProductVariant(_: unknown, form: FormData): Promise<
   return { ok: "Variante supprimée." };
 }
 
+
+
+const collectionSchema = z.object({
+  id: z.string().uuid().optional().or(z.literal("")),
+  title: z.string().trim().min(2, "Le nom de la collection est obligatoire.").max(120),
+  slug: z.string().trim().max(80).optional().or(z.literal("")),
+  description: z.string().trim().max(1000).optional().or(z.literal("")),
+  status: z.enum(["draft", "published", "archived"]),
+  sort: z.coerce.number().int().min(0).max(100000),
+});
+
+export async function saveCollection(form: FormData) {
+  const { sb } = await requireAdmin();
+  const parsed = collectionSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return redirect("/admin/collections?erreur=" + encodeURIComponent(parsed.error.issues[0]?.message ?? "Collection invalide."));
+  const d = parsed.data;
+  const productIds = [...new Set(form.getAll("product_ids").map(String).filter(Boolean))];
+  if (productIds.length > 500) return redirect("/admin/collections?erreur=" + encodeURIComponent("Une collection ne peut pas contenir plus de 500 produits."));
+  if (d.status === "published" && productIds.length === 0) return redirect("/admin/collections?erreur=" + encodeURIComponent("Une collection publiée doit contenir au moins un produit."));
+
+  const slug = slugify(d.slug || d.title);
+  if (!slug) return redirect("/admin/collections?erreur=" + encodeURIComponent("Le slug de la collection est invalide."));
+
+  if (productIds.length) {
+    const { data: products, error: productError } = await sb.from("products").select("id,status").in("id", productIds);
+    if (productError || (products ?? []).length !== productIds.length) return redirect("/admin/collections?erreur=" + encodeURIComponent("Un ou plusieurs produits sélectionnés sont introuvables."));
+    if ((products ?? []).some((p) => p.status !== "published")) return redirect("/admin/collections?erreur=" + encodeURIComponent("Une collection ne peut référencer que des produits publiés."));
+  }
+
+  const row = { slug, title: d.title, description: d.description || "", status: d.status, sort: d.sort };
+
+  if (d.id) {
+    const { data: current, error: currentError } = await sb.from("collections").select("id").eq("id", d.id).maybeSingle();
+    if (currentError || !current) return redirect("/admin/collections?erreur=" + encodeURIComponent("Collection introuvable."));
+    const { data: oldItems, error: oldItemsError } = await sb.from("collection_items").select("product_id,sort").eq("collection_id", d.id);
+    if (oldItemsError) return redirect("/admin/collections?erreur=" + encodeURIComponent("Lecture des produits de la collection impossible."));
+    const { error: updateError } = await sb.from("collections").update(row).eq("id", d.id);
+    if (updateError) return redirect("/admin/collections?erreur=" + encodeURIComponent(updateError.code === "23505" ? "Ce slug de collection existe déjà." : updateError.message));
+    const { error: clearError } = await sb.from("collection_items").delete().eq("collection_id", d.id);
+    if (clearError) return redirect("/admin/collections?erreur=" + encodeURIComponent("Les produits de la collection n'ont pas pu être remplacés."));
+    if (productIds.length) {
+      const { error: insertError } = await sb.from("collection_items").insert(productIds.map((productId, index) => ({ collection_id: d.id!, product_id: productId, sort: (index + 1) * 10 })));
+      if (insertError) {
+        await sb.from("collection_items").insert((oldItems ?? []).map((item) => ({ collection_id: d.id!, product_id: item.product_id, sort: item.sort })));
+        return redirect("/admin/collections?erreur=" + encodeURIComponent("La collection a été modifiée, mais ses produits n'ont pas pu être enregistrés ; l'ancienne sélection a été restaurée."));
+      }
+    }
+    revalidateTag("collections");
+    revalidatePath("/collections");
+    revalidatePath("/collections/" + slug);
+    revalidatePath("/admin/collections");
+    return redirect("/admin/collections?ok=" + encodeURIComponent("Collection enregistrée."));
+  }
+
+  const { data: created, error: createError } = await sb.from("collections").insert(row).select("id").single();
+  if (createError || !created) return redirect("/admin/collections?erreur=" + encodeURIComponent(createError?.code === "23505" ? "Ce slug de collection existe déjà." : (createError?.message ?? "Collection non créée.")));
+  if (productIds.length) {
+    const { error: insertError } = await sb.from("collection_items").insert(productIds.map((productId, index) => ({ collection_id: created.id, product_id: productId, sort: (index + 1) * 10 })));
+    if (insertError) {
+      await sb.from("collections").delete().eq("id", created.id);
+      return redirect("/admin/collections?erreur=" + encodeURIComponent("Les produits n'ont pas pu être enregistrés ; la collection n'a pas été créée."));
+    }
+  }
+  revalidateTag("collections");
+  revalidatePath("/collections");
+  revalidatePath("/admin/collections");
+  return redirect("/admin/collections?ok=" + encodeURIComponent("Collection créée."));
+}
+
+export async function deleteCollection(form: FormData) {
+  const { sb } = await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const { error } = await sb.from("collections").delete().eq("id", id);
+  if (error) return redirect("/admin/collections?erreur=" + encodeURIComponent("Suppression impossible : " + error.message));
+  revalidateTag("collections");
+  revalidatePath("/collections");
+  revalidatePath("/admin/collections");
+  return redirect("/admin/collections?ok=" + encodeURIComponent("Collection supprimée."));
+}
+
 export async function deleteProduct(form: FormData) {
   const { sb } = await requireAdmin();
   const { error } = await sb.from("products").delete().eq("id", z.string().uuid().parse(form.get("id")));
