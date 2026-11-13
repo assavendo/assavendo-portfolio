@@ -3,6 +3,8 @@ const MANUS_BASE = "https://api.manus.ai/v2";
 type ManusResponse<T> = {
   ok?: boolean;
   request_id?: string;
+  task_id?: string;
+  task_url?: string;
   error?: { code?: string; message?: string };
   data?: T;
   task?: T;
@@ -24,7 +26,8 @@ async function request<T>(path: string, apiKey: string, init: RequestInit = {}):
     let parsed: ManusResponse<T> = {};
     try { parsed = JSON.parse(raw) as ManusResponse<T>; } catch { /* response body is not trusted */ }
     const error = parsed.error?.message || (response.ok ? undefined : `Manus HTTP ${response.status}`);
-    return { ok: response.ok && parsed.ok !== false, status: response.status, requestId: parsed.request_id, data: parsed.data ?? parsed.task, error };
+    const data = parsed.data ?? parsed.task ?? (parsed.task_id ? ({ id: parsed.task_id, task_url: parsed.task_url } as T) : undefined);
+    return { ok: response.ok && parsed.ok !== false, status: response.status, requestId: parsed.request_id, data, error };
   } catch (error) {
     return { ok: false, status: 0, error: error instanceof Error ? error.name : "NETWORK_ERROR" };
   }
