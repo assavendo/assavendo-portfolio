@@ -1,6 +1,5 @@
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { generateMasterKey } from "@/lib/ai/crypto";
 import { PRESETS, ROLES } from "@/lib/ai/policy";
 import {
   addKey, askProduct, askResearch, decideTask, keyAction, saveAgent, saveSettings
@@ -91,8 +90,8 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
 
     {!masterOk ? <section className="panel" role="note" style={{ border: "1px solid var(--danger, #b42318)" }}>
       <h2 style={h2}>Secret Manager serveur requis</h2>
-      <p>Définissez <code>AI_MASTER_KEY</code> côté serveur uniquement. Cette clé ne doit jamais être copiée dans le navigateur ni dans Git.</p>
-      <p><code style={{ wordBreak: "break-all", userSelect: "all" }}>{generateMasterKey()}</code></p>
+      <p>Définissez <code>AI_MASTER_KEY</code> côté serveur uniquement. Cette clé ne doit jamais être affichée dans l’interface ni dans Git.</p>
+      <p>Générez-la hors ligne, par exemple avec <code>openssl rand -base64 32</code>, puis ajoutez-la dans les variables d’environnement Vercel (Production).</p>
     </section> : null}
 
     <section aria-label="AI KPIs" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: ".75rem", margin: "1rem 0" }}>
