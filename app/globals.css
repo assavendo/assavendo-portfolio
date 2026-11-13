@@ -445,7 +445,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .95rem; }
 .cart-sum dt, .cart-sum dd { margin: 0; }
 .cart-sum .grand { border-top: 1px solid var(--line-strong); padding-top: .6rem; font: 700 1.2rem var(--display); }
 .add-form { display: grid; gap: .8rem; margin-top: 1rem; }
-.add-form .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: end; }
+.add-form .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; }
 .cart-link { position: relative; }
 .cart-badge { display: inline-block; min-width: 1.4rem; padding: 0 .4rem; margin-left: .3rem; border-radius: 999px; background: var(--signal); color: var(--signal-ink); font-weight: 700; font-size: .8rem; text-align: center; }
 @media (max-width: 560px) { .cart-line { grid-template-columns: 72px minmax(0, 1fr); } .cart-img { width: 72px; } .cart-total { grid-column: 2; } }
