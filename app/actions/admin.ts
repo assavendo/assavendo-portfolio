@@ -254,7 +254,7 @@ export async function saveProductVariant(_: unknown, form: FormData): Promise<Ad
   const { data: product } = await sb.from("products").select("id").eq("id", d.product_id).maybeSingle();
   if (!product) return fail("Produit introuvable.");
 
-  let options: Record<string, string> = {};
+  const options: Record<string, string> = {};
   const optionsJson = d.options_json ?? "";
   if (optionsJson) {
     try {
