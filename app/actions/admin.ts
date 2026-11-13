@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath, revalidateTag } from "next/cache";
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin, requireAdminBase } from "@/lib/admin";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 import { toolKeys } from "@/lib/tool-keys";
@@ -15,6 +15,36 @@ import { esc, sendEmail } from "@/lib/email";
 import { siteUrl } from "@/lib/env";
 
 export type AdminState = { error?: string; ok?: string; values?: Record<string, string> };
+const adminNext = (value: FormDataEntryValue | null) => {
+  const v = String(value ?? "");
+  return /^\\/admin(?:\\/[a-z0-9/_-]+)?$/.test(v) ? v : "/admin";
+};
+
+export async function verifyAdminMfa(_: unknown, form: FormData): Promise<{ error?: string }> {
+  const { sb } = await requireAdminBase();
+  const code = z.string().regex(/^\\d{6}$/, "Saisissez le code à 6 chiffres.").parse(String(form.get("code") ?? ""));
+  const next = adminNext(form.get("next"));
+  if (!(await allow("admin-mfa", 6, 600))) return { error: "Trop de tentatives. Réessayez dans quelques minutes." };
+  const { data: factors, error: factorsError } = await sb.auth.mfa.listFactors();
+  const factor = (factors?.totp ?? []).find((f) => f.status === "verified");
+  if (factorsError || !factor) return { error: "Aucun second facteur administrateur actif." };
+  const { data: challenge, error: challengeError } = await sb.auth.mfa.challenge({ factorId: factor.id });
+  if (challengeError || !challenge) return { error: "Impossible de préparer la vérification MFA. Réessayez." };
+  const { error } = await sb.auth.mfa.verify({ factorId: factor.id, challengeId: challenge.id, code });
+  if (error) return { error: "Code MFA incorrect ou expiré." };
+  redirect(next);
+}
+
+export async function unenrollAdminMfa(form: FormData) {
+  const { sb } = await requireAdmin();
+  if (String(form.get("confirm") ?? "") !== "DESACTIVER") redirect("/admin/securite?erreur=confirmation");
+  const factorId = z.string().uuid().parse(form.get("factorId"));
+  const { error } = await sb.auth.mfa.unenroll({ factorId });
+  if (error) throw new Error("Impossible de désactiver le second facteur : " + error.message);
+  revalidatePath("/admin"); revalidatePath("/admin/securite");
+  redirect("/admin/securite?mfa=off");
+}
+
 
 export async function signIn(_: unknown, form: FormData) {
   const parsed = z.object({ email: z.string().email(), password: z.string().min(8) }).safeParse(Object.fromEntries(form));
@@ -209,18 +239,25 @@ export async function moderate(form: FormData) {
   const { sb } = await requireAdmin();
   const kind = z.enum(["comment", "review"]).parse(form.get("kind")); const id = z.string().uuid().parse(form.get("id"));
   const decision = z.enum(["approved", "rejected"]).parse(form.get("decision"));
-  await sb.from(kind === "comment" ? "product_comments" : "product_reviews").update({ status: decision }).eq("id", id);
+  const table = kind === "comment" ? "product_comments" : "product_reviews";
+  const { error } = await sb.from(table).update({ status: decision }).eq("id", id);
+  if (error) throw new Error("Modération impossible : " + error.message);
   revalidatePath("/admin/moderation");
 }
 export async function replyAsOwner(form: FormData) {
   const { sb } = await requireAdmin();
   const p = z.object({ parent: z.string().uuid(), product: z.string().uuid(), body: z.string().trim().min(2).max(1500) }).parse({ parent: form.get("parent"), product: form.get("product"), body: form.get("body") });
-  await sb.from("product_comments").insert({ product_id: p.product, parent_id: p.parent, author_name: "Assavendo", body: p.body, is_owner_reply: true, status: "approved" });
+  const { data: parent, error: parentError } = await sb.from("product_comments").select("id, product_id, status, is_owner_reply, parent_id").eq("id", p.parent).maybeSingle();
+  if (parentError || !parent || parent.status !== "approved" || parent.is_owner_reply || parent.parent_id || parent.product_id !== p.product) throw new Error("Commentaire parent invalide.");
+  const { error } = await sb.from("product_comments").insert({ product_id: p.product, parent_id: p.parent, author_name: "Assavendo", body: p.body, is_owner_reply: true, status: "approved" });
+  if (error) throw new Error("Réponse impossible : " + error.message);
   revalidatePath("/admin/moderation");
 }
 export async function setMessageStatus(form: FormData) {
   const { sb } = await requireAdmin();
-  await sb.from("contact_messages").update({ status: z.enum(["new", "read", "archived"]).parse(form.get("status")) }).eq("id", z.string().uuid().parse(form.get("id")));
+  const status = z.enum(["new", "read", "archived"]).parse(form.get("status"));
+  const { error } = await sb.from("contact_messages").update({ status }).eq("id", z.string().uuid().parse(form.get("id")));
+  if (error) throw new Error("Mise à jour du message impossible : " + error.message);
   revalidatePath("/admin/messages");
 }
 
@@ -241,28 +278,15 @@ export async function revokeDownload(form: FormData) {
 export async function renewDownload(form: FormData) {
   const { sb } = await requireAdmin();
   const id = orderId(form);
-  const expires_at = new Date(Date.now() + 30 * 864e5).toISOString();
-  const { data: ord } = await sb.from("orders").select("product_id").eq("id", id).eq("status", "paid").maybeSingle();
-  if (!ord) throw new Error("Commande payée introuvable.");
-  if (ord.product_id) {
-    const { error } = await sb.from("orders").update({ download_token: randomBytes(32).toString("hex"), expires_at, download_max: 5 }).eq("id", id).eq("status", "paid");
-    if (error) throw new Error("Renouvellement impossible : " + error.message);
-  } else {
-    // commande à lignes : un nouveau lien par fichier numérique (compteur remis à zéro, anciens liens invalidés)
-    const { data: items } = await sb.from("order_items").select("id, product_id").eq("order_id", id).eq("kind", "digital");
-    for (const it of items ?? []) {
-      const { data: has } = await sb.from("product_deliverables").select("product_id").eq("product_id", it.product_id).maybeSingle();
-      if (!has) continue;
-      const { error } = await sb.from("order_items").update({ download_token: randomBytes(32).toString("hex"), expires_at, download_max: 5, download_count: 0 }).eq("id", it.id);
-      if (error) throw new Error("Renouvellement impossible : " + error.message);
-    }
-  }
+  const { data, error } = await sb.rpc("admin_renew_download", { p_order_id: id, p_ttl_days: 30 });
+  if (error) throw new Error("Renouvellement impossible : " + error.message);
+  if (Number(data ?? 0) <= 0) throw new Error("Aucun fichier numérique renouvelable pour cette commande ou commande à vérifier.");
   revalidatePath("/admin/commandes");
 }
 /** Marque une alerte comme traitée (après vérification dans Stripe). */
 export async function resolveOrderReview(form: FormData) {
   const { sb } = await requireAdmin();
-  const { error } = await sb.from("orders").update({ needs_review: false }).eq("id", orderId(form));
+  const { error } = await sb.from("orders").update({ needs_review: false, review_note: null }).eq("id", orderId(form));
   if (error) throw new Error("Mise à jour impossible : " + error.message);
   revalidatePath("/admin/commandes");
 }
@@ -276,9 +300,17 @@ export async function updateFulfilment(form: FormData) {
   }).safeParse(Object.fromEntries(form));
   if (!parsed.success) throw new Error("Suivi invalide : le lien de suivi doit commencer par https://.");
   const d = parsed.data;
-  const { data: cur } = await sb.from("orders").select("fulfilment, status, customer_email, order_number, access_token").eq("id", d.id).maybeSingle();
+  const { data: cur } = await sb.from("orders").select("fulfilment, status, customer_email, order_number, access_token, order_items(kind)").eq("id", d.id).maybeSingle();
   if (!cur || cur.status !== "paid") throw new Error("Seule une commande payée peut être expédiée.");
-  const { error } = await sb.from("orders").update({ fulfilment: d.fulfilment, tracking_number: d.tracking_number || null, tracking_url: d.tracking_url || null, ...(d.fulfilment === "delivered" ? { delivered_at: new Date().toISOString() } : {}) }).eq("id", d.id);
+  const items = (cur.order_items ?? []) as { kind: string }[];
+  if (!items.some((i) => i.kind === "physical")) throw new Error("Cette commande ne contient aucun article physique.");
+  if (cur.fulfilment === "delivered" && d.fulfilment !== "delivered") throw new Error("Une commande livrée ne peut pas revenir à un état antérieur.");
+  const { error } = await sb.from("orders").update({
+    fulfilment: d.fulfilment,
+    tracking_number: d.tracking_number || null,
+    tracking_url: d.tracking_url || null,
+    delivered_at: d.fulfilment === "delivered" ? new Date().toISOString() : null,
+  }).eq("id", d.id);
   if (error) throw new Error("Mise à jour impossible : " + error.message);
   if (d.fulfilment === "shipped" && cur.fulfilment !== "shipped") {
     await sendEmail({ to: cur.customer_email, subject: `Votre commande ${cur.order_number} est expédiée`, html: `<p>Bonne nouvelle : votre commande <strong>${esc(cur.order_number ?? "")}</strong> est expédiée.</p>${d.tracking_url ? `<p>Suivre le colis : <a href="${esc(d.tracking_url)}">${esc(d.tracking_number || d.tracking_url)}</a></p>` : d.tracking_number ? `<p>Numéro de suivi : ${esc(d.tracking_number)}</p>` : ""}<p>Détail de la commande : <a href="${siteUrl}/commande/${cur.access_token}">${siteUrl}/commande/${cur.access_token}</a></p><p>Assavendo</p>` });
@@ -292,15 +324,11 @@ export async function processReturn(form: FormData) {
   const d = z.object({ id: z.string().uuid(), status: z.enum(["approved", "refused", "received", "refunded"]), admin_note: z.string().trim().max(2000).optional() }).parse(Object.fromEntries(form));
   const { data: r } = await sb.from("return_requests").select("id, status, email, order_item_id, order_items(title, qty, product_id, variant_id, kind), orders(order_number)").eq("id", d.id).maybeSingle();
   if (!r) throw new Error("Demande introuvable.");
-  const { error } = await sb.from("return_requests").update({ status: d.status, admin_note: d.admin_note ?? "", updated_at: new Date().toISOString() }).eq("id", d.id);
-  if (error) throw new Error("Mise à jour impossible : " + error.message);
+  const db = supabaseAdmin();
+  const restock = form.get("restock") === "on";
+  const { error } = await db.rpc("admin_process_return", { p_id: d.id, p_status: d.status, p_admin_note: d.admin_note ?? "", p_restock: restock });
+  if (error) throw new Error("Traitement du retour impossible : " + error.message);
   const it = r.order_items as unknown as { title: string; qty: number; product_id: string; variant_id: string | null; kind: string } | null;
-  if (d.status === "received" && r.status !== "received" && form.get("restock") === "on" && it?.kind === "physical") {
-    const db = supabaseAdmin();
-    if (it.variant_id) { const { data: v } = await db.from("product_variants").select("stock_qty").eq("id", it.variant_id).maybeSingle(); if (v) await db.from("product_variants").update({ stock_qty: v.stock_qty + it.qty }).eq("id", it.variant_id); }
-    else { const { data: p } = await db.from("products").select("stock_qty, track_stock").eq("id", it.product_id).maybeSingle(); if (p?.track_stock) await db.from("products").update({ stock_qty: p.stock_qty + it.qty }).eq("id", it.product_id); }
-    await db.from("stock_movements").insert({ product_id: it.product_id, variant_id: it.variant_id, delta: it.qty, reason: "retour", reference: d.id });
-  }
   if (d.status !== r.status) {
     const label = { approved: "Votre demande de retour est acceptée.", refused: "Votre demande de retour a été refusée.", received: "Nous avons bien reçu votre colis.", refunded: "Votre remboursement a été effectué." }[d.status];
     await sendEmail({ to: r.email, subject: `Retour : ${it?.title ?? "votre article"}`, html: `<p>${esc(label)}</p>${d.admin_note ? `<p>${esc(d.admin_note)}</p>` : ""}<p>Assavendo</p>` });
