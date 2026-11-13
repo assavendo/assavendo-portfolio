@@ -204,11 +204,12 @@ async function executeWorkflowRun(
       stepResult = await executeStep(workflow, runId, step, context);
       if (stepResult.ok || stepResult.waitingApproval) break;
       if (!isRetryable(step.action, stepResult.error) || stepAttempts > Number(workflow.max_retries ?? 2)) break;
+      const retryDelay = backoffMs(stepAttempts);
       await db.from("ai_workflow_runs").update({
         attempt: stepAttempts,
-        retry_at: new Date(Date.now() + backoffMs(stepAttempts)).toISOString(),
+        retry_at: new Date(Date.now() + retryDelay).toISOString(),
       }).eq("id", runId);
-      await sleep(backoffMs(stepAttempts));
+      await sleep(retryDelay);
     }
 
     results.push({ action: step.action, step_order: step.step_order, attempts: stepAttempts, ...stepResult });
