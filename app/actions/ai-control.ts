@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -316,36 +317,119 @@ export async function saveAiWorkflow(form: FormData) {
   const status = z.enum(["draft", "active", "paused", "disabled", "archived"]).parse(form.get("status"));
   const intervalMinutes = z.coerce.number().int().min(1).max(1440).parse(form.get("interval_minutes") ?? "60");
   const definition = { interval_minutes: intervalMinutes };
+
+  const stepSchema = z.object({
+    step_key: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),
+    step_order: z.coerce.number().int().min(1).max(100),
+    action: z.enum(["noop", "agent.run", "tool.authorize", "approval.create"]),
+    agent_slug: z.string().trim().max(100).nullable().optional(),
+    tool_slug: z.string().trim().max(100).nullable().optional(),
+    policy_slug: z.string().trim().max(120).nullable().optional(),
+    required_approval: z.boolean().optional().default(false),
+    config: z.record(z.string(), z.unknown()).optional().default({}),
+  });
+
+  let steps: Array<z.infer<typeof stepSchema>>;
+  const stepsJson = String(form.get("steps_json") ?? "").trim();
+  if (stepsJson) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(stepsJson);
+    } catch {
+      return redirectBack("La définition JSON des étapes est invalide.", "erreur");
+    }
+    const parsed = z.array(stepSchema).min(1).max(50).safeParse(raw);
+    if (!parsed.success) return redirectBack(parsed.error.issues[0]?.message ?? "Étapes invalides.", "erreur");
+    steps = parsed.data;
+  } else {
+    const action = String(form.get("step_action") ?? "noop");
+    const agent = String(form.get("agent_slug") ?? "").trim();
+    const tool = String(form.get("tool_slug") ?? "").trim();
+    const policy = String(form.get("policy_slug") ?? "").trim();
+    const prompt = String(form.get("prompt") ?? "").trim().slice(0, 4000);
+    steps = [{
+      step_key: "main",
+      step_order: 1,
+      action: z.enum(["noop", "agent.run", "tool.authorize", "approval.create"]).parse(action),
+      agent_slug: agent || null,
+      tool_slug: tool || null,
+      policy_slug: policy || null,
+      required_approval: form.get("required_approval") === "on",
+      config: { prompt },
+    }];
+  }
+
+  const seenKeys = new Set<string>();
+  const seenOrders = new Set<number>();
+  for (const step of steps) {
+    if (seenKeys.has(step.step_key) || seenOrders.has(step.step_order)) return redirectBack("Chaque étape doit avoir un step_key et un step_order uniques.", "erreur");
+    seenKeys.add(step.step_key); seenOrders.add(step.step_order);
+    if (step.action === "agent.run" && !step.agent_slug) return redirectBack(`L'étape ${step.step_key} nécessite un agent.`, "erreur");
+    if (step.action === "tool.authorize" && !step.tool_slug) return redirectBack(`L'étape ${step.step_key} nécessite un outil.`, "erreur");
+  }
+  steps.sort((a, b) => a.step_order - b.step_order);
+
   const db = supabaseAdmin();
   const { data: latest } = await db.from("ai_workflows").select("version").eq("slug", slug).order("version", { ascending: false }).limit(1).maybeSingle();
   const version = Number(latest?.version ?? 0) + 1;
   const now = new Date();
   const { data: workflow, error } = await db.from("ai_workflows").insert({
-    slug, version, name, description, trigger_type: triggerType, status, definition,
+    slug, version, name, description, trigger_type: triggerType, status, definition: { ...definition, steps_count: steps.length },
     next_run_at: status === "active" && triggerType === "schedule" ? new Date(now.getTime() + intervalMinutes * 60000).toISOString() : null,
     created_by: user.id,
   }).select("id").single();
   if (error || !workflow) return redirectBack("Workflow non enregistré.", "erreur");
-  const action = String(form.get("step_action") ?? "noop");
-  const agent = String(form.get("agent_slug") ?? "");
-  const tool = String(form.get("tool_slug") ?? "");
-  const policy = String(form.get("policy_slug") ?? "");
-  const prompt = String(form.get("prompt") ?? "").trim().slice(0, 4000);
-  const requiresApproval = form.get("required_approval") === "on";
-  const { error: stepError } = await db.from("ai_workflow_steps").insert({
-    workflow_id: workflow.id, step_key: "main", step_order: 1, action,
-    agent_slug: agent || null, tool_slug: tool || null, policy_slug: policy || null,
-    required_approval: requiresApproval, config: { prompt },
-  });
+
+  const stepRows = steps.map((step) => ({
+    workflow_id: workflow.id,
+    step_key: step.step_key,
+    step_order: step.step_order,
+    action: step.action,
+    agent_slug: step.agent_slug || null,
+    tool_slug: step.tool_slug || null,
+    policy_slug: step.policy_slug || null,
+    required_approval: Boolean(step.required_approval),
+    config: step.config,
+  }));
+
+  const { error: stepError } = await db.from("ai_workflow_steps").insert(stepRows);
   if (stepError) {
     await db.from("ai_workflows").delete().eq("id", workflow.id);
-    return redirectBack("Workflow non enregistré : étape invalide.", "erreur");
+    return redirectBack("Workflow non enregistré : une étape est invalide.", "erreur");
   }
+
   await db.from("ai_audit_logs").insert({
     actor_type: "user", actor_id: user.id, user_id: user.id, service: "ai-control-plane",
     action: "create_workflow", resource_type: "ai_workflow", resource_id: workflow.id,
-    policy_decision: requiresApproval ? "REQUIRE_APPROVAL" : "ALLOW",
-    metadata: { slug, version, triggerType, status, step_action: action },
+    policy_decision: steps.some((s) => s.required_approval || s.action === "approval.create") ? "REQUIRE_APPROVAL" : "ALLOW",
+    metadata: { slug, version, triggerType, status, steps_count: steps.length },
   });
-  redirectBack("Workflow IA enregistré.");
+  redirectBack(`Workflow IA v${version} enregistré avec ${steps.length} étape(s).`);
+}
+
+export async function saveAiPolicy(form: FormData) {
+  const { user } = await requireAdmin();
+  const slug = z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(120).parse(form.get("slug"));
+  const name = z.string().trim().min(2).max(160).parse(form.get("name"));
+  const description = z.string().trim().max(1000).parse(form.get("description") ?? "");
+  const rulesJson = z.string().trim().min(2).max(12000).parse(form.get("rules_json"));
+  const parsedRules = (() => {
+    try { return JSON.parse(rulesJson) as Record<string, unknown>; } catch { return null; }
+  })();
+  if (!parsedRules || Array.isArray(parsedRules) || typeof parsedRules !== "object") return redirectBack("Les règles de policy doivent être un objet JSON.", "erreur");
+  const db = supabaseAdmin();
+  const { data: latest } = await db.from("ai_policies").select("version").eq("slug", slug).order("version", { ascending: false }).limit(1).maybeSingle();
+  const version = Number(latest?.version ?? 0) + 1;
+  const checksum = createHash("sha256").update(JSON.stringify(parsedRules), "utf8").digest("hex");
+  const { error } = await db.from("ai_policies").insert({
+    slug, version, name, description, enabled: true, rules: parsedRules, checksum, created_by: user.id,
+  });
+  if (error) return redirectBack("Nouvelle version de policy non enregistrée.", "erreur");
+  await db.from("ai_policies").update({ enabled: false }).eq("slug", slug).neq("version", version);
+  await db.from("ai_audit_logs").insert({
+    actor_type: "user", actor_id: user.id, user_id: user.id, service: "ai-control-plane",
+    action: "version_policy", resource_type: "ai_policy", resource_id: slug,
+    policy_decision: "ALLOW", metadata: { version, checksum },
+  });
+  redirectBack(`Policy ${slug} v${version} activée.`);
 }
