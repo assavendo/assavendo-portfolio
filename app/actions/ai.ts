@@ -84,7 +84,16 @@ export async function keyAction(form: FormData) {
 export async function saveSettings(form: FormData) {
   await requireAdmin();
   const cap = z.coerce.number().int().min(1).max(100000).safeParse(form.get("daily_call_cap")); if (!cap.success) return back("Plafond invalide.", "erreur");
-  await supabaseAdmin().from("ai_settings").update({ enabled: form.get("enabled") === "on", daily_call_cap: cap.data, updated_at: new Date().toISOString() }).eq("id", 1);
+  const db = supabaseAdmin();
+  const enabled = form.get("enabled") === "on";
+  const now = new Date().toISOString();
+  const { error } = await db.from("ai_settings").update({ enabled, daily_call_cap: cap.data, updated_at: now }).eq("id", 1);
+  if (error) return back("Réglages IA non enregistrés.", "erreur");
+  const { data: state } = await db.from("ai_control_state").select("mode").eq("id", 1).maybeSingle();
+  if (!enabled || state?.mode === "NO_AI") {
+    await db.from("ai_control_state").update({ mode: enabled ? "FULL" : "NO_AI", updated_at: now }).eq("id", 1);
+  }
+  await db.from("ai_audit_logs").insert({ actor_type: "user", actor_id: (await requireAdmin()).user.id, user_id: (await requireAdmin()).user.id, service: "ai-control-plane", action: "save_ai_settings", resource_type: "ai_settings", resource_id: "1", policy_decision: "ALLOW", metadata: { enabled, daily_call_cap: cap.data } });
   return back("Réglages enregistrés.");
 }
 
