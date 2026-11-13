@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { decryptSecret, encryptSecret, generateMasterKey, masterKey } from "../lib/ai/crypto.ts";
 import { candidates, classifyFailure, scrub, specificFirst, type KeyRow } from "../lib/ai/policy.ts";
-import { validateToolInput } from "../lib/ai/policy-engine.ts";
+import { validateToolInput } from "../lib/ai/tool-schema.ts";
 
 const k = (o: Partial<KeyRow>): KeyRow => ({ id: "a", provider: "groq", label: "A", base_url: "https://x", model: "m", secret_enc: "", key_hint: "", roles: ["general"], priority: 100, enabled: true, cooldown_until: null, fail_count: 0, daily_limit: null, used_day: "2026-11-05", used_today: 0, ...o });
 const now = new Date("2026-11-05T10:00:00Z");
