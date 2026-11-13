@@ -170,6 +170,9 @@ async function executeStep(
   }
 
   if (step.action === "approval.create") {
+    if (context.approved_step_order === step.step_order) {
+      return { ok: true, result: { decision: "approved" } };
+    }
     const approvalId = await createApproval(supabaseAdmin(), workflow, runId, step, context, "Étape explicitement soumise à validation.");
     return approvalId
       ? { ok: false, waitingApproval: true, approvalId, error: "Validation humaine requise." }
