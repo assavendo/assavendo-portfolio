@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { decryptSecret, encryptSecret, generateMasterKey, masterKey } from "../lib/ai/crypto.ts";
 import { candidates, classifyFailure, scrub, specificFirst, type KeyRow } from "../lib/ai/policy.ts";
+import { validateToolInput } from "../lib/ai/policy-engine.ts";
 
 const k = (o: Partial<KeyRow>): KeyRow => ({ id: "a", provider: "groq", label: "A", base_url: "https://x", model: "m", secret_enc: "", key_hint: "", roles: ["general"], priority: 100, enabled: true, cooldown_until: null, fail_count: 0, daily_limit: null, used_day: "2026-11-05", used_today: 0, ...o });
 const now = new Date("2026-11-05T10:00:00Z");
@@ -62,4 +63,23 @@ test("envoi automatique : refusé si lien externe, e-mail, argent ou longueur an
   assert.equal(safeToAutoSend("Bonjour, nous vous accordons un remboursement complet, avec plaisir.", h), false);
   assert.equal(safeToAutoSend("Trop court", h), false);
   assert.equal(safeToAutoSend("a".repeat(1600), h), false);
+});
+
+
+test("policy engine : schéma d'outil et paramètres interdits", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      order_id: { type: "string", maxLength: 40 },
+      mode: { type: "string", enum: ["summary", "full"] },
+    },
+    required: ["order_id"],
+    additionalProperties: false,
+    maxProperties: 2,
+  };
+  assert.equal(validateToolInput(schema, { order_id: "ORD-1", mode: "summary" }), null);
+  assert.match(validateToolInput(schema, { mode: "summary" }) ?? "", /requis/);
+  assert.match(validateToolInput(schema, { order_id: "ORD-1", extra: true }) ?? "", /non autorisé/);
+  assert.match(validateToolInput(schema, { order_id: "x".repeat(41) }) ?? "", /trop longue/);
+  assert.match(validateToolInput(schema, { order_id: "ORD-1", mode: "other" }) ?? "", /interdite/);
 });
