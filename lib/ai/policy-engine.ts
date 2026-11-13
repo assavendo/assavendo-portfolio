@@ -1,5 +1,4 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { validateToolInput } from "./tool-schema";
 
 export { validateToolInput } from "./tool-schema";
 
