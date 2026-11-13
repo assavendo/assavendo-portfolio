@@ -30,7 +30,7 @@ Fiches « problème → solution », outils gratuits en ligne, boutique de produ
 
 Les migrations versionnées de la base sont dans `supabase/migrations/` et couvrent notamment :
 
-`20261016000000_init` → `20261019000000_reconcile_content` → `20261019010000_commerce_and_ops` → `20261020000000_pagespeed_tool` → `20261104000000_catalog` → `20261105000000_cart_orders` → `20261106000000_customer_account` → `20261107000000_ai_hub` → `20261108044420_global_markets_additive_20261106043200` → `20261113075603_security_hardening` → `20261113080018_prevent_zero_total_physical_orders` → `20261113081238_account_admin_hardening` → `20261113081953_return_refund_gate` → `20261113084659_ai_control_plane_v2` → `20261113084717_ai_control_plane_v2_hardening` → `20261113084857_ai_specialized_agents_and_models` → `20261113090000_ai_workflow_runtime`.
+`20261016000000_init` → `20261019000000_reconcile_content` → `20261019010000_commerce_and_ops` → `20261020000000_pagespeed_tool` → `20261104000000_catalog` → `20261105000000_cart_orders` → `20261106000000_customer_account` → `20261107000000_ai_hub` → `20261108044420_global_markets_additive_20261106043200` → `20261113075603_security_hardening` → `20261113080018_prevent_zero_total_physical_orders` → `20261113081238_account_admin_hardening` → `20261113081953_return_refund_gate` → `20261113084659_ai_control_plane_v2` → `20261113084717_ai_control_plane_v2_hardening` → `20261113084857_ai_specialized_agents_and_models` → `20261113085549_ai_workflow_runtime` → `20261113085856_ai_provider_health_defaults`.
 
 La CI rejoue les migrations et les tests SQL sur un PostgreSQL jetable avant le build et les tests e2e. Les installations Node utilisent `npm ci` avec cache npm et les GitHub Actions sont épinglées sur des commits précis.
 
