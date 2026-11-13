@@ -12,7 +12,7 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Produits : marque, prix barré réel, SKU, GTIN, poids, origine, délais, garantie, retour, livraison | ✅ | Contraintes SQL (prix barré > prix) |
 | Variantes avec stock et prix propres | ✅ | Base, panier, paiement et stock : faits. Éditeur admin complet : création, modification, suppression, SKU, options, prix, stock, ordre et activation. |
 | Recherche : accents, synonymes, fautes simples, filtres, facettes, tri, URL partageable | ✅ | Côté application, 15 tests unitaires. Pas de moteur dédié (OpenSearch hors périmètre) |
-| Collections éditoriales | 🟡 | Tables et lecture publique faites ; pages et édition admin non faites |
+| Collections éditoriales | ✅ | Pages publiques `/collections` et `/collections/[slug]`, édition admin des collections et sélection des produits publiés, navigation et sitemap intégrés. |
 | Pas de faux avis, fausse rareté, faux badge, fausse remise | ✅ | Aucun compteur artificiel ; « stock faible » seulement si le stock suivi est réel |
 | SEO : canoniques, JSON-LD Product/Breadcrumb/WebSite, sitemap catégories | ✅ | |
 | Accessibilité WCAG 2.2 AA | ✅ | axe-core sur toutes les nouvelles pages (CI) |
