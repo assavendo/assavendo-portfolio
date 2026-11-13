@@ -118,33 +118,70 @@ async function budgetAllows(
   provider: string,
   accountId: string | null,
   projectedUsd: number | null,
+  workflowId: string | null = null,
+  taskId: string | null = null,
 ): Promise<{ ok: boolean; reason?: string }> {
   if (projectedUsd == null) return { ok: true };
+  const now = new Date(todayStart);
+  const weekStart = new Date(now);
+  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const scopes = [
     { type: "global", id: "assavendo" },
     { type: "provider", id: provider },
     ...(accountId ? [{ type: "account", id: accountId }] : []),
     { type: "agent", id: agent },
+    ...(workflowId ? [{ type: "workflow", id: workflowId }] : []),
+    ...(taskId ? [{ type: "task", id: taskId }] : []),
   ];
-  const { data: budgets } = await db.from("ai_budgets").select("scope_type,scope_id,daily_limit_usd,warning_percent,restrict_percent,block_percent,enabled").in("scope_type", scopes.map((s) => s.type));
+  const { data: budgets } = await db
+    .from("ai_budgets")
+    .select("scope_type,scope_id,daily_limit_usd,weekly_limit_usd,monthly_limit_usd,per_task_limit_usd,warning_percent,restrict_percent,block_percent,enabled")
+    .in("scope_type", scopes.map((s) => s.type));
   const relevant = (budgets ?? []).filter((b) => b.enabled && scopes.some((s) => s.type === b.scope_type && s.id === b.scope_id));
   if (!relevant.length) return { ok: true };
 
-  const { data: runs } = await db.from("ai_runs").select("agent,provider_slug,account_id,estimated_cost_usd").gte("created_at", todayStart).not("estimated_cost_usd", "is", null).limit(5000);
+  const { data: runs } = await db
+    .from("ai_runs")
+    .select("agent,provider_slug,account_id,workflow_id,task_id,estimated_cost_usd,created_at")
+    .gte("created_at", monthStart.toISOString())
+    .not("estimated_cost_usd", "is", null)
+    .limit(10000);
+
   for (const budget of relevant) {
     const matches = (runs ?? []).filter((r) =>
       budget.scope_type === "global"
+      || budget.scope_type === "team"
       || (budget.scope_type === "provider" && r.provider_slug === budget.scope_id)
       || (budget.scope_type === "account" && r.account_id === budget.scope_id)
       || (budget.scope_type === "agent" && r.agent === budget.scope_id)
+      || (budget.scope_type === "workflow" && r.workflow_id === budget.scope_id)
+      || (budget.scope_type === "task" && r.task_id === budget.scope_id)
     );
-    const spent = matches.reduce((sum, r) => sum + Number(r.estimated_cost_usd ?? 0), 0);
-    const limit = budget.daily_limit_usd == null ? null : Number(budget.daily_limit_usd);
-    if (limit != null && spent + projectedUsd > limit) {
-      return { ok: false, reason: `Budget ${budget.scope_type}:${budget.scope_id} atteint.` };
+    const costSince = (start: Date) => matches
+      .filter((r) => new Date(String(r.created_at)) >= start)
+      .reduce((sum, r) => sum + Number(r.estimated_cost_usd ?? 0), 0);
+    const dailySpent = costSince(new Date(todayStart));
+    const weeklySpent = costSince(weekStart);
+    const monthlySpent = costSince(monthStart);
+
+    const limits: Array<[string, number | null, number]> = [
+      ["journalier", budget.daily_limit_usd == null ? null : Number(budget.daily_limit_usd), dailySpent],
+      ["hebdomadaire", budget.weekly_limit_usd == null ? null : Number(budget.weekly_limit_usd), weeklySpent],
+      ["mensuel", budget.monthly_limit_usd == null ? null : Number(budget.monthly_limit_usd), monthlySpent],
+    ];
+
+    for (const [period, limit, spent] of limits) {
+      if (limit != null && spent + projectedUsd > limit * (Number(budget.block_percent ?? 100) / 100)) {
+        return { ok: false, reason: `Budget ${budget.scope_type}:${budget.scope_id} ${period} atteint.` };
+      }
+      if (limit != null && spent / Math.max(limit, 0.000001) >= Number(budget.restrict_percent ?? 85) / 100) {
+        return { ok: false, reason: `Budget ${budget.scope_type}:${budget.scope_id} en zone de restriction.` };
+      }
     }
-    if (limit && spent / limit >= Number(budget.restrict_percent ?? 85) / 100) {
-      return { ok: false, reason: `Budget ${budget.scope_type}:${budget.scope_id} en zone de restriction.` };
+
+    if (budget.per_task_limit_usd != null && projectedUsd > Number(budget.per_task_limit_usd)) {
+      return { ok: false, reason: `Coût maximal par tâche dépassé pour ${budget.scope_type}:${budget.scope_id}.` };
     }
   }
   return { ok: true };
@@ -153,7 +190,7 @@ async function budgetAllows(
 export async function runAgent(
   agent: "support" | "recherche" | "catalogue",
   messages: Msg[],
-  opts: { maxTokens?: number; json?: boolean } = {},
+  opts: { maxTokens?: number; json?: boolean; workflowId?: string | null; taskId?: string | null } = {},
 ): Promise<RunResult> {
   const db = supabaseAdmin();
   const [{ data: settings }, { data: control }] = await Promise.all([
@@ -177,7 +214,7 @@ export async function runAgent(
   const providerBySlug = new Map((providers ?? []).map((p) => [String(p.slug), p]));
   const filteredKeys = ((rows ?? []) as KeyRow[]).filter((key) => {
     const provider = providerBySlug.get(key.provider);
-    if (provider && (!provider.enabled || ["disabled", "maintenance", "unavailable"].includes(String(provider.status)))) return false;
+    if (provider && (!provider.enabled || ["disabled", "maintenance", "unavailable", "rate_limited"].includes(String(provider.status)))) return false;
     const account = accountByCredential.get(key.id);
     if (!account) return true;
     if (account.status !== "active") return false;
@@ -185,7 +222,7 @@ export async function runAgent(
   });
   const list = specificFirst(candidates(filteredKeys, agent), agent).slice(0, 6);
   if (!list.length) {
-    await log(db, agent, null, null, false, 0, null, "Aucune ressource disponible", null, null, null, null, null, "DENY", false, mode, null);
+    await log(db, agent, null, null, false, 0, null, "Aucune ressource disponible", null, null, null, null, null, "DENY", false, mode, null, opts);
     return { ok: false, error: "Aucune ressource IA disponible pour ce rôle.", attempts: 0 };
   }
 
@@ -198,12 +235,17 @@ export async function runAgent(
     attempts++;
     const t0 = Date.now();
     const account = accountByCredential.get(k.id);
-    const { data: model } = await db.from("ai_models").select("id,input_usd_per_1m,output_usd_per_1m").eq("provider_slug", k.provider).eq("model_key", k.model).maybeSingle();
+    const { data: model } = await db.from("ai_models").select("id,status,input_usd_per_1m,output_usd_per_1m").eq("provider_slug", k.provider).eq("model_key", k.model).maybeSingle();
+    if (model && model.status !== "approved") {
+      last = `Modèle ${k.model} non approuvé en production.`;
+      await log(db, agent, k.id, k.label, false, attempts, 0, last, k.provider, k.model, account?.id ? String(account.id) : null, null, null, "DENY", attempts > 1, mode, model.id, opts);
+      continue;
+    }
     const projected = projectedCost(safeMessages, maxTokens, model);
-    const budget = await budgetAllows(db, since.toISOString(), agent, k.provider, account?.id ? String(account.id) : null, projected);
+    const budget = await budgetAllows(db, since.toISOString(), agent, k.provider, account?.id ? String(account.id) : null, projected, opts.workflowId ?? null, opts.taskId ?? null);
     if (!budget.ok) {
       last = budget.reason ?? "Budget atteint";
-      await log(db, agent, k.id, k.label, false, attempts, 0, last, k.provider, k.model, account?.id ? String(account.id) : null, null, null, "RATE_LIMIT", attempts > 1, mode, model?.id ?? null);
+      await log(db, agent, k.id, k.label, false, attempts, 0, last, k.provider, k.model, account?.id ? String(account.id) : null, null, null, "RATE_LIMIT", attempts > 1, mode, model?.id ?? null, opts);
       continue;
     }
 
@@ -220,14 +262,14 @@ export async function runAgent(
     if (r.status === 200 && r.text) {
       const cost = await estimateCostUsd(db, k.provider, k.model, r.usage);
       await mark(db, k, { ok: true }, account?.id ? String(account.id) : null);
-      await log(db, agent, k.id, k.label, true, attempts, Date.now() - t0, null, k.provider, k.model, account?.id ? String(account.id) : null, r, cost, "ALLOW", attempts > 1, mode, model?.id ?? null);
+      await log(db, agent, k.id, k.label, true, attempts, Date.now() - t0, null, k.provider, k.model, account?.id ? String(account.id) : null, r, cost, "ALLOW", attempts > 1, mode, model?.id ?? null, opts);
       return { ok: true, text: r.text, keyLabel: k.label, attempts, provider: k.provider, model: k.model, accountId: account?.id ? String(account.id) : null, estimatedCostUsd: cost };
     }
 
     const failure = classifyFailure(r.status, r.retryAfter, scrub(r.detail ?? ""));
     last = scrub(`${k.label} : ${failure.message}`);
-    await mark(db, k, { disable: failure.disable, cooldownSec: failure.cooldownSec, error: last }, account?.id ? String(account.id) : null);
-    await log(db, agent, k.id, k.label, false, attempts, Date.now() - t0, last, k.provider, k.model, account?.id ? String(account.id) : null, r, null, "ALLOW", attempts > 1, mode, model?.id ?? null);
+    await mark(db, k, { disable: failure.disable, cooldownSec: failure.cooldownSec, error: last, kind: failure.kind }, account?.id ? String(account.id) : null);
+    await log(db, agent, k.id, k.label, false, attempts, Date.now() - t0, last, k.provider, k.model, account?.id ? String(account.id) : null, r, null, "ALLOW", attempts > 1, mode, model?.id ?? null, opts);
     if (!failure.retryNext) return { ok: false, error: last, attempts };
   }
 
@@ -236,7 +278,12 @@ export async function runAgent(
 
 type Db = ReturnType<typeof supabaseAdmin>;
 
-async function mark(db: Db, k: KeyRow, o: { ok?: boolean; disable?: boolean; cooldownSec?: number; error?: string }, accountId: string | null) {
+async function mark(
+  db: Db,
+  k: KeyRow,
+  o: { ok?: boolean; disable?: boolean; cooldownSec?: number; error?: string; kind?: string },
+  accountId: string | null,
+) {
   const today = new Date().toISOString().slice(0, 10);
   const used = (k.used_day === today ? k.used_today : 0) + 1;
   const now = new Date().toISOString();
@@ -246,24 +293,71 @@ async function mark(db: Db, k: KeyRow, o: { ok?: boolean; disable?: boolean; coo
     if (accountId) await db.from("ai_accounts").update({ status: "active", last_success: now, updated_at: now }).eq("id", accountId);
     return;
   }
+
+  const failCount = k.fail_count + 1;
+  const providerStatus = o.kind === "rate_limit"
+    ? "rate_limited"
+    : failCount >= 3 && ["server", "network"].includes(String(o.kind)) ? "unavailable" : "degraded";
+  const healthScore = o.kind === "rate_limit" ? 35 : Math.max(15, 100 - failCount * 20);
+
   await db.from("ai_keys").update({
-    used_day: today, used_today: used, fail_count: k.fail_count + 1, last_error: o.error ?? null,
-    ...(o.disable ? { enabled: false } : {}), ...(o.cooldownSec ? { cooldown_until: new Date(Date.now() + o.cooldownSec * 1000).toISOString() } : {}),
+    used_day: today,
+    used_today: used,
+    fail_count: failCount,
+    last_error: o.error ?? null,
+    ...(o.disable ? { enabled: false } : {}),
+    ...(o.cooldownSec ? { cooldown_until: new Date(Date.now() + o.cooldownSec * 1000).toISOString() } : {}),
   }).eq("id", k.id);
-  if (accountId) await db.from("ai_accounts").update({
-    status: o.disable ? "disabled" : o.cooldownSec ? "rate_limited" : "unavailable",
-    last_failure: now, ...(o.cooldownSec ? { last_429: now } : {}), updated_at: now,
-  }).eq("id", accountId);
+
+  await db.from("ai_providers").update({
+    status: providerStatus,
+    health_score: healthScore,
+    last_health_at: now,
+    last_error: o.error ?? null,
+    updated_at: now,
+  }).eq("slug", k.provider);
+
+  if (accountId) {
+    await db.from("ai_accounts").update({
+      status: o.disable ? "disabled" : o.kind === "rate_limit" ? "rate_limited" : "unavailable",
+      last_failure: now,
+      ...(o.kind === "rate_limit" ? { last_429: now } : {}),
+      updated_at: now,
+    }).eq("id", accountId);
+  }
+
+  if (o.kind && ["rate_limit", "quota", "auth", "server", "network"].includes(o.kind)) {
+    const { data: openIncident } = await db.from("ai_incidents")
+      .select("id")
+      .eq("provider_slug", k.provider)
+      .eq("kind", o.kind)
+      .in("status", ["open", "acknowledged"])
+      .limit(1)
+      .maybeSingle();
+    if (!openIncident) {
+      await db.from("ai_incidents").insert({
+        provider_slug: k.provider,
+        account_id: accountId,
+        kind: o.kind,
+        severity: o.kind === "auth" || o.kind === "quota" ? "high" : "warning",
+        status: "open",
+        title: `Incident provider ${k.provider} : ${o.kind}`,
+        details: { message: o.error ?? "Échec provider", key_label: k.label },
+      });
+    }
+  }
 }
 
 async function log(
   db: Db, agent: string, keyId: string | null, label: string | null, ok: boolean, attempts: number, ms: number | null,
   error: string | null, provider: string | null, model: string | null, accountId: string | null, response: CallResult | null,
   estimatedCostUsd: number | null, policyDecision: string, fallbackUsed: boolean, mode: string, modelId: string | null,
+  scope: { workflowId?: string | null; taskId?: string | null } = {},
 ) {
   await db.from("ai_runs").insert({
     agent, key_id: keyId, key_label: label, ok, attempts, latency_ms: ms, error, provider_slug: provider, model_id: modelId,
-    account_id: accountId, input_tokens: response?.usage?.prompt_tokens ?? null, output_tokens: response?.usage?.completion_tokens ?? null,
+    account_id: accountId, workflow_id: scope.workflowId ?? null, task_id: scope.taskId ?? null,
+    input_tokens: response?.usage?.prompt_tokens ?? null, output_tokens: response?.usage?.completion_tokens ?? null,
     estimated_cost_usd: estimatedCostUsd, policy_decision: policyDecision, fallback_used: fallbackUsed, request_id: response?.requestId ?? null, mode,
   });
 }
