@@ -30,7 +30,11 @@ export function analyzeSeo(html: string, pageUrl: string): SeoReport {
   let internal = 0; let external = 0;
   for (const m of body.matchAll(/<a\b[^>]*>/gi)) {
     const href = attr(m[0], "href"); if (!href || /^(#|mailto:|tel:|javascript:)/i.test(href)) continue;
-    try { new URL(href, pageUrl).hostname === host ? internal++ : external++; } catch { /* ignoré */ }
+    try {
+      const linkHost = new URL(href, pageUrl).hostname;
+      if (linkHost === host) internal++;
+      else external++;
+    } catch { /* ignoré */ }
   }
   const text = strip(body); const wordCount = text ? text.split(/\s+/).length : 0;
   const openGraph = metas.some((t) => attr(t, "property")?.startsWith("og:"));
