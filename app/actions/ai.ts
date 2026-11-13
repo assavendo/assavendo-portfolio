@@ -33,9 +33,36 @@ export async function addKey(form: FormData) {
   const roles = form.getAll("roles").map(String).filter((r) => (ROLES as readonly string[]).includes(r)); const limit = d.daily_limit ? Number(d.daily_limit) : null;
   if (limit !== null && (!Number.isInteger(limit) || limit < 1)) return back("Limite journalière invalide.", "erreur");
   let enc: string; try { enc = encryptSecret(d.secret); } catch (e) { return back(e instanceof Error ? e.message : "Chiffrement impossible.", "erreur"); }
-  const { error } = await supabaseAdmin().from("ai_keys").insert({ provider: d.provider, label: d.label, base_url: base, model, secret_enc: enc, key_hint: d.secret.slice(-4), roles: roles.length ? roles : ["general"], priority: d.priority, daily_limit: limit });
-  if (error) return back("Clé non enregistrée.", "erreur");
-  return back("Clé ajoutée et chiffrée. Testez-la avec le bouton « Tester ».");
+  const db = supabaseAdmin();
+  const { data: key, error } = await db.from("ai_keys").insert({
+    provider: d.provider,
+    label: d.label,
+    base_url: base,
+    model,
+    secret_enc: enc,
+    key_hint: d.secret.slice(-4),
+    roles: roles.length ? roles : ["general"],
+    priority: d.priority,
+    daily_limit: limit,
+  }).select("id").single();
+  if (error || !key) return back("Clé non enregistrée.", "erreur");
+  const { error: accountError } = await db.from("ai_accounts").insert({
+    provider_slug: d.provider,
+    name: d.label,
+    environment: "production",
+    credential_type: "ai_key",
+    credential_id: key.id,
+    status: "active",
+    allowed_agents: roles.filter((role) => role !== "general"),
+    quota: { daily_calls: limit },
+    rate_limits: {},
+    cost_policy: {},
+  });
+  if (accountError) {
+    await db.from("ai_keys").delete().eq("id", key.id);
+    return back("La clé a été refusée par le registre des comptes IA; rien n'a été conservé.", "erreur");
+  }
+  return back("Clé ajoutée, chiffrée et enregistrée comme compte IA. Testez-la avant activation.");
 }
 
 export async function keyAction(form: FormData) {
