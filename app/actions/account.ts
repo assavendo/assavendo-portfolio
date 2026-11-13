@@ -50,7 +50,7 @@ const addressSchema = z.object({
   country: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Pays : code à 2 lettres (FR, BE…)."), phone: z.string().trim().max(30).optional(),
 });
 export async function addAddress(_: FormState, form: FormData): Promise<FormState> {
-  const { sb, user } = await requireCustomer("/compte/adresses");
+  const { sb } = await requireCustomer("/compte/adresses");
   const parsed = addressSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Vérifiez le formulaire.", values: formValues(form) };
   const d = parsed.data;
