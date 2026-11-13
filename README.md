@@ -18,7 +18,7 @@ Fiches « problème → solution », outils gratuits en ligne, boutique de produ
 ## Ce qui n'est pas fait
 
 - CSP avec nonces : non activé pour éviter de casser le rendu sans campagne de test dédiée.
-- **2FA admin** : la connexion admin est protégée par limitation des tentatives, mais pas encore par MFA.
+- **2FA admin** : authentification TOTP intégrée ; après enrôlement du premier facteur, chaque connexion administrateur exige un code MFA.
 - **Multilingue et analytics** : non déployés.
 - **Réécriture éditoriale** des 86 brouillons : volontairement non automatisée.
 - Pages « Études de cas » et « Blog » : volontairement absentes tant qu'il n'y a pas de contenu réel.
