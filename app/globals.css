@@ -203,7 +203,7 @@ a.domain-row:hover { background: var(--surface); color: var(--ink); text-decorat
 .credit a { color: #fff; }
 
 /* ---------- catalogue ---------- */
-.filters { display: grid; gap: .8rem; grid-template-columns: 2fr 1.4fr 1fr 1fr auto; align-items: end; margin-bottom: 2rem; background: var(--surface); padding: 1.1rem; border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-1); }
+.filters { display: grid; gap: .8rem; grid-template-columns: 2fr 1.4fr 1fr 1fr auto; align-items: flex-end; margin-bottom: 2rem; background: var(--surface); padding: 1.1rem; border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-1); }
 @media (max-width: 900px) { .filters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .filters { grid-template-columns: 1fr; } }
 label.field { display: grid; gap: .3rem; font-weight: 600; font-size: .92rem; }
