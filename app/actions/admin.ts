@@ -279,7 +279,7 @@ export async function saveProductVariant(_: unknown, form: FormData): Promise<Ad
     price_cents = parsedPrice;
   }
 
-  const sku = d.sku.trim() || null;
+  const sku = (d.sku ?? "").trim() || null;
   const row = {
     product_id: d.product_id,
     sku,
