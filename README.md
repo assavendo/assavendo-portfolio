@@ -10,7 +10,7 @@ Fiches « problème → solution », outils gratuits en ligne, boutique de produ
 - **Paiement** : commande créée *avant* la session Stripe (clé d'idempotence), webhook qui appelle les fonctions SQL de finalisation (verrou, contrôle montant/devise, jetons), événement enregistré seulement après succès ; consentements CGV + renonciation (produits numériques) journalisés avec version et IP hachée.
 - **Marchés** : les destinations physiques autorisées au checkout sont calculées depuis `public.markets` ; un marché doit être explicitement vendable et expédiable, avec ses statuts fiscalité/livraison/conformité/prix/paiement validés.
 - **Téléchargements** : `claim_download` / `release_download` atomiques, expiration, quota, journal `order_downloads`, révocation/renouvellement depuis l’admin.
-- **Sécurité** : anti-SSRF (`lib/ip.ts`, `lib/safe-fetch.ts`), Turnstile, limitation de débit, RLS, CSP, HSTS, permissions policy, images restreintes aux hôtes autorisés et clés serveur séparées.
+- **Sécurité** : anti-SSRF (`lib/ip.ts`, `lib/safe-fetch.ts`), Turnstile, limitation de débit, RLS, CSP, HSTS, permissions policy, images restreintes aux hôtes autorisés et clés serveur séparées. Le Centre IA ajoute un Control Plane avec allowlists, budgets, modes FULL/DEGRADED/SAFE/NO_AI/MAINTENANCE, audit append-only et gouvernance des credentials.
 - **Outils** : en-têtes HTTP, SEO, SPF/DMARC/DKIM, mots de passe, ROAS, panier abandonné, A/B, PageSpeed ; copie, impression, export et CTA contextuel.
 - **Design** : tokens CSS, mode sombre automatique, contrastes WCAG AA vérifiés par script, illustrations SVG originales, CSS d'impression, pages d'erreur, icônes, manifest et images Open Graph.
 - **Qualité** : tests Node, tests SQL sur PostgreSQL jetable avec tests de concurrence/rollback, tests e2e Playwright + axe, CI GitHub Actions.
@@ -19,7 +19,7 @@ Fiches « problème → solution », outils gratuits en ligne, boutique de produ
 
 - CSP avec nonces : non activé pour éviter de casser le rendu sans campagne de test dédiée.
 - **2FA admin** : authentification TOTP intégrée ; après enrôlement du premier facteur, chaque connexion administrateur exige un code MFA.
-- **Multilingue et analytics** : non déployés.
+- **Multilingue et analytics** : non déployés comme fonctionnalités générales du site. La brique IA de traduction/localisation est maintenant enregistrée mais désactivée par défaut.
 - **Réécriture éditoriale** des 86 brouillons : volontairement non automatisée.
 - Pages « Études de cas » et « Blog » : volontairement absentes tant qu'il n'y a pas de contenu réel.
 - Outils DNS/HTTPS et générateur de redirections : non implémentés.
@@ -30,7 +30,7 @@ Fiches « problème → solution », outils gratuits en ligne, boutique de produ
 
 Les migrations versionnées de la base sont dans `supabase/migrations/` et couvrent notamment :
 
-`20261016000000_init` → `20261019000000_reconcile_content` → `20261019010000_commerce_and_ops` → `20261020000000_pagespeed_tool` → `20261104000000_catalog` → `20261105000000_cart_orders` → `20261106000000_customer_account` → `20261107000000_ai_hub` → `20261108044420_global_markets_additive_20261106043200` → `20261113075603_security_hardening` → `20261113080018_prevent_zero_total_physical_orders` → `20261113081238_account_admin_hardening` → `20261113081953_return_refund_gate`.
+`20261016000000_init` → `20261019000000_reconcile_content` → `20261019010000_commerce_and_ops` → `20261020000000_pagespeed_tool` → `20261104000000_catalog` → `20261105000000_cart_orders` → `20261106000000_customer_account` → `20261107000000_ai_hub` → `20261108044420_global_markets_additive_20261106043200` → `20261113075603_security_hardening` → `20261113080018_prevent_zero_total_physical_orders` → `20261113081238_account_admin_hardening` → `20261113081953_return_refund_gate` → `20261113084659_ai_control_plane_v2` → `20261113084717_ai_control_plane_v2_hardening` → `20261113084857_ai_specialized_agents_and_models`.
 
 La CI rejoue les migrations et les tests SQL sur un PostgreSQL jetable avant le build et les tests e2e. Les installations Node utilisent `npm ci` avec cache npm et les GitHub Actions sont épinglées sur des commits précis.
 
@@ -60,3 +60,4 @@ Déclarer la clé dans `lib/tool-keys.ts`, créer `lib/tools/<x>.ts`, la route `
 `npm test` · `npm run check` · `npm run lint` · `npm run typecheck` · `npm run test:db` · `npm run e2e` · `npm run verify`.
 
 La CI exécute également `npm audit --omit=dev --audit-level=high` à titre informatif. Les intégrations Stripe/Resend réelles et les secrets de production restent à tester dans leurs environnements respectifs.
+\n\n### Centre IA — Control Plane\n\nLe centre /admin/ia couvre désormais le registre des providers, comptes et credentials chiffrés, modèles et benchmarks, agents spécialisés, allowlist d'outils, policies, budgets multi-niveaux, routing, validations, workflows, incidents, audit et modes de sécurité. Manus v2 est derrière un adapter dédié et reste désactivé tant qu'un compte n'est pas enregistré et testé. Les agents spécialisés supplémentaires restent désactivés par défaut.\n\nLe routeur IA respecte le mode global, les comptes/providers désactivés, les quotas par clé et les budgets applicables avant appel. Les appels externes passent par le data gateway pour réduire les données sensibles et les erreurs provider sont journalisées avec fallback. Le moteur de workflows persistant et l'ordonnanceur restent une couche à brancher avant d'activer des workflows planifiés complexes.\n
