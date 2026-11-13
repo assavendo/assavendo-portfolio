@@ -53,18 +53,31 @@ export async function addAddress(_: FormState, form: FormData): Promise<FormStat
   const { sb, user } = await requireCustomer("/compte/adresses");
   const parsed = addressSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Vérifiez le formulaire.", values: formValues(form) };
-  const { count } = await sb.from("addresses").select("*", { count: "exact", head: true }).eq("user_id", user.id);
-  if ((count ?? 0) >= 5) return { ok: false, message: "Vous pouvez enregistrer 5 adresses au maximum : supprimez-en une d'abord.", values: formValues(form) };
   const d = parsed.data;
-  const { error } = await sb.from("addresses").insert({ user_id: user.id, label: d.label, full_name: d.full_name, line1: d.line1, line2: d.line2 || null, postal_code: d.postal_code, city: d.city, country: d.country, phone: d.phone || null });
-  if (error) return { ok: false, message: "Adresse non enregistrée : " + error.message, values: formValues(form) };
+  const { error } = await sb.rpc("add_customer_address", {
+    p_label: d.label,
+    p_full_name: d.full_name,
+    p_line1: d.line1,
+    p_line2: d.line2 || null,
+    p_postal_code: d.postal_code,
+    p_city: d.city,
+    p_country: d.country,
+    p_phone: d.phone || null,
+  });
+  if (error) {
+    const message = error.code === "P0001" ? error.message : "Adresse non enregistrée. Réessayez dans un instant.";
+    return { ok: false, message, values: formValues(form) };
+  }
   revalidatePath("/compte/adresses");
   return { ok: true, message: "Adresse enregistrée." };
 }
 export async function deleteAddress(form: FormData) {
   const { sb, user } = await requireCustomer("/compte/adresses");
-  await sb.from("addresses").delete().eq("id", z.string().uuid().parse(form.get("id"))).eq("user_id", user.id);
+  const id = z.string().uuid().parse(form.get("id"));
+  const { error } = await sb.from("addresses").delete().eq("id", id).eq("user_id", user.id);
+  if (error) throw new Error("Suppression impossible : " + error.message);
   revalidatePath("/compte/adresses");
+  redirect("/compte/adresses?supprime=1");
 }
 
 /** Demande de retour : depuis le lien de suivi de la commande (compte non requis). La propriété est prouvée par le jeton secret. */
@@ -93,11 +106,23 @@ export async function requestReturn(_: FormState, form: FormData): Promise<FormS
 
 /** Suppression du compte : données personnelles effacées ou anonymisées (les factures sont conservées de façon anonymisée selon l'obligation légale). */
 export async function deleteAccount(form: FormData) {
-  const { user } = await requireCustomer("/compte");
+  const { sb, user } = await requireCustomer("/compte");
   if (form.get("confirm") !== "SUPPRIMER") redirect("/compte?erreur=confirmation");
   const db = supabaseAdmin();
-  await db.rpc("erase_personal_data", { p_email: user.email });
-  await db.auth.admin.deleteUser(user.id);   // favoris et adresses suivent par cascade
-  await (await supabaseServer()).auth.signOut();
+  const { error: eraseError } = await db.rpc("erase_personal_data", { p_email: user.email });
+  if (eraseError) {
+    console.error("[compte] effacement", eraseError.message);
+    return redirect("/compte?erreur=effacement");
+  }
+  const { error: signoutError } = await sb.auth.signOut({ scope: "global" });
+  if (signoutError) {
+    console.error("[compte] révocation des sessions", signoutError.message);
+    return redirect("/compte?erreur=sessions");
+  }
+  const { error: deleteError } = await db.auth.admin.deleteUser(user.id);
+  if (deleteError) {
+    console.error("[compte] suppression du compte", deleteError.message);
+    return redirect("/compte?erreur=suppression");
+  }
   redirect("/?compte=supprime");
 }
