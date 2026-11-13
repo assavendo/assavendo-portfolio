@@ -3,6 +3,10 @@ import { validateToolInput } from "./tool-schema";
 
 export { validateToolInput } from "./tool-schema";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 export type PolicyEvaluation = {
   allowed: boolean;
   decision: "ALLOW" | "DENY" | "REQUIRE_APPROVAL" | "REQUIRE_STEP_UP_AUTH";
