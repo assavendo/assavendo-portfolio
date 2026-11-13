@@ -104,7 +104,7 @@ export async function toggleAiProvider(form: FormData) {
   const slug = z.string().trim().min(1).max(80).parse(form.get("slug"));
   const enabled = z.enum(["true", "false"]).parse(form.get("enabled")) === "true";
   const db = supabaseAdmin();
-  const status = enabled ? "healthy" : "disabled";
+  const status = enabled ? "degraded" : "disabled";
   const { error } = await db.from("ai_providers").update({ enabled, status, updated_at: new Date().toISOString() }).eq("slug", slug);
   if (error) return redirectBack("Provider introuvable ou non modifiable.", "erreur");
   await audit({ action: enabled ? "enable_provider" : "disable_provider", actorId: user.id, resourceType: "ai_provider", resourceId: slug, policyDecision: enabled ? "ALLOW" : "REQUIRE_STEP_UP_AUTH" });
@@ -179,8 +179,10 @@ export async function saveAiModel(form: FormData) {
   const id = z.string().uuid().parse(form.get("id"));
   const status = z.enum(["candidate", "approved", "disabled", "deprecated"]).parse(form.get("status"));
   const benchmark = form.get("benchmark_score") ? z.coerce.number().min(0).max(100).parse(form.get("benchmark_score")) : null;
+  const inputRate = form.get("input_usd_per_1m") ? z.coerce.number().min(0).max(100000).parse(form.get("input_usd_per_1m")) : null;
+  const outputRate = form.get("output_usd_per_1m") ? z.coerce.number().min(0).max(100000).parse(form.get("output_usd_per_1m")) : null;
   const db = supabaseAdmin();
-  const { error } = await db.from("ai_models").update({ status, benchmark_score: benchmark, validated_at: status === "approved" ? new Date().toISOString() : null, updated_at: new Date().toISOString() }).eq("id", id);
+  const { error } = await db.from("ai_models").update({ status, benchmark_score: benchmark, input_usd_per_1m: inputRate, output_usd_per_1m: outputRate, validated_at: status === "approved" ? new Date().toISOString() : null, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) return redirectBack("Modèle non modifié.", "erreur");
   await audit({ action: "update_model_status", actorId: user.id, resourceType: "ai_model", resourceId: id, metadata: { status, benchmark_score: benchmark } });
   redirectBack("Modèle IA enregistré.");
