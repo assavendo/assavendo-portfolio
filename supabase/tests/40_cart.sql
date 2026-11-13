@@ -5,7 +5,12 @@ begin if not ok then raise exception 'ÉCHEC : %', msg; end if; end $$;
 insert into public.products (id, slug, title, summary, kind, price_cents, status, published_at, track_stock, stock_qty, shipping_cents, delivery_min_days, delivery_max_days)
 values ('44444444-4444-4444-4444-444444444441', 'casque-test', 'Casque de test', 'Un casque physique pour tester le panier.', 'physical', 5000, 'published', now(), true, 3, 490, 2, 4),
        ('44444444-4444-4444-4444-444444444442', 'ebook-test', 'Ebook de test', 'Un livre numérique pour tester le panier.', 'digital', 1200, 'published', now(), false, 0, 0, null, null),
-       ('44444444-4444-4444-4444-444444444443', 'gratuit-test', 'Guide gratuit', 'Un guide gratuit pour tester le panier.', 'digital', 0, 'published', now(), false, 0, 0, null, null);
+       ('44444444-4444-4444-4444-444444444443', 'gratuit-test', 'Guide gratuit', 'Un guide gratuit pour tester le panier.', 'digital', 0, 'published', now(), false, 0, 0, null, null),
+       ('44444444-4444-4444-4444-444444444445', 'objet-gratuit-test', 'Objet gratuit', 'Un objet physique gratuit pour tester la collecte de livraison.', 'physical', 0, 'published', now(), false, 0, 0, null, null);
+
+select pg_temp.assert(
+  (select error like '%produit physique gratuit%' from public.create_cart_order('[{"p":"44444444-4444-4444-4444-444444444445","q":1}]'::jsonb, 'gratuit-physique@exemple.fr', 'free-phys', 'v1', true, 'iphash')),
+  'produit physique gratuit sans livraison refusé');
 insert into public.product_deliverables (product_id, storage_path, file_name) values ('44444444-4444-4444-4444-444444444442', 'e/ebook.pdf', 'ebook.pdf');
 
 -- panier valide : lignes identiques fusionnées, prix recalculés par la base, livraison comptée une fois par produit physique
