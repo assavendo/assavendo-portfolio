@@ -6,7 +6,7 @@ import {
   addKey, askProduct, askResearch, decideTask, keyAction, saveAgent, saveSettings
 } from "@/app/actions/ai";
 import {
-  decideAiApproval, resolveAiIncident, saveAiBudget, saveAiModel, setAgentTool, setAiMode,
+  addManusAccount, decideAiApproval, resolveAiIncident, saveAiBudget, saveAiModel, setAgentTool, setAiMode,
   testAiAccount, toggleAiAccount, toggleAiProvider, toggleAiTool,
 } from "@/app/actions/ai-control";
 
@@ -149,6 +149,14 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
           <form action={toggleAiAccount}><input type="hidden" name="id" value={a.id}/><input type="hidden" name="enabled" value={a.status === "active" ? "false" : "true"}/><button className="btn btn-ghost btn-sm">{a.status === "active" ? "Désactiver" : "Activer"}</button></form>
         </div></td>
       </tr>)}</tbody></table></div>
+
+      <h3 style={{ fontSize: "1.05rem", marginTop: "1.2rem" }}>Ajouter un compte Manus</h3>
+      <form action={addManusAccount} className="buy-form" autoComplete="off">
+        <label className="field">Nom du compte<input className="input" name="name" required maxLength={120} placeholder="Manus production"/></label>
+        <label className="field">Clé API Manus<input className="input" name="secret" type="password" required minLength={10} maxLength={400} autoComplete="new-password"/></label>
+        <label className="field">Profil<select className="input" name="agent_profile"><option value="standard">standard</option><option value="lite">lite</option><option value="max">max</option></select></label>
+        <button className="btn btn-primary" disabled={!masterOk}>{masterOk ? "Chiffrer et enregistrer Manus" : "AI_MASTER_KEY requis"}</button>
+      </form>
 
       <h3 style={{ fontSize: "1.05rem" }}>Ajouter une clé OpenAI-compatible</h3>
       <form action={addKey} className="buy-form" autoComplete="off">
