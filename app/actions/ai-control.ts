@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
 import { callChat } from "@/lib/ai/router";
 import { resumeWorkflowRun } from "@/lib/ai/workflows";
+import { runModelBenchmark } from "@/lib/ai/benchmarks";
 import { manusHealthCheck } from "@/lib/ai/manus";
 import { scrub, type KeyRow } from "@/lib/ai/policy";
 
@@ -173,6 +174,22 @@ export async function testAiAccount(form: FormData) {
     metadata: { provider: account.provider_slug },
   });
   redirectBack(ok ? `Compte testé : ${detail}` : `Test échoué : ${detail}`, ok ? "ok" : "erreur");
+}
+
+export async function runAiBenchmark(form: FormData) {
+  const { user } = await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const result = await runModelBenchmark(id);
+  if (!result.ok) return redirectBack(result.error ?? "Benchmark impossible.", "erreur");
+  await audit({
+    action: "run_model_benchmark",
+    actorId: user.id,
+    resourceType: "ai_model",
+    resourceId: id,
+    policyDecision: "ALLOW",
+    metadata: { score: result.score, passed: result.passed, total: result.total },
+  });
+  redirectBack(`Benchmark terminé : ${result.score}/100 (${result.passed}/${result.total}).`);
 }
 
 export async function saveAiModel(form: FormData) {
