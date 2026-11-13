@@ -6,13 +6,15 @@ import { AddressForm } from "@/components/AddressForm";
 
 export const metadata: Metadata = { title: "Mes adresses", robots: { index: false } };
 export const dynamic = "force-dynamic";
-export default async function Adresses() {
+export default async function Adresses({ searchParams }: { searchParams: Promise<{ supprime?: string }> }) {
   const { sb, user } = await requireCustomer("/compte/adresses");
+  const sp = await searchParams;
   const { data } = await sb.from("addresses").select("*").eq("user_id", user.id).order("created_at");
   return (
     <div className="section"><div className="wrap" style={{ maxWidth: 820 }}>
       <p><Link href="/compte">← Mon compte</Link></p>
       <h1 style={{ fontSize: "clamp(2rem,4vw,2.8rem)" }}>Mes adresses</h1>
+      {sp.supprime === "1" ? <p className="alert alert-ok" role="status">Adresse supprimée.</p> : null}
       <p className="muted">Pour votre information : l&apos;adresse de livraison de chaque commande se saisit sur la page de paiement sécurisée.</p>
       {(data ?? []).length ? <ul className="plain">{(data ?? []).map((a) => (
         <li key={a.id} className="panel" style={{ marginBottom: ".8rem" }}>
