@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
 import { callChat } from "@/lib/ai/router";
+import { resumeWorkflowRun } from "@/lib/ai/workflows";
 import { manusHealthCheck } from "@/lib/ai/manus";
 import { scrub, type KeyRow } from "@/lib/ai/policy";
 
@@ -209,13 +210,40 @@ export async function decideAiApproval(form: FormData) {
   if (!approval || approval.status !== "pending") return redirectBack("Approbation introuvable ou déjà décidée.", "erreur");
   if (decision === "approved" && approval.risk_level === "critical" && !reason) return redirectBack("Une justification est obligatoire pour une approbation critique.", "erreur");
   const now = new Date().toISOString();
+  if (approval.expires_at && new Date(approval.expires_at).getTime() <= Date.now()) {
+    await db.from("ai_approvals").update({ status: "expired", decided_by: user.id, decided_at: now, decision_reason: "Approbation expirée." }).eq("id", id).eq("status", "pending");
+    return redirectBack("Cette approbation a expiré.", "erreur");
+  }
   const { error } = await db.from("ai_approvals").update({ status: decision, decided_by: user.id, decided_at: now, decision_reason: reason }).eq("id", id).eq("status", "pending");
   if (error) return redirectBack("La décision n'a pas pu être enregistrée.", "erreur");
+
   if (approval.task_id) {
-    await db.from("ai_tasks").update({ status: decision === "approved" ? "approved" : decision === "rejected" ? "rejected" : "canceled", decided_by: user.id, decided_at: now }).eq("id", approval.task_id);
+    await db.from("ai_tasks").update({
+      status: decision === "approved" ? "approved" : decision === "rejected" ? "rejected" : "canceled",
+      decided_by: user.id,
+      decided_at: now,
+    }).eq("id", approval.task_id);
   }
-  await audit({ action: "approval_" + decision, actorId: user.id, resourceType: "ai_approval", resourceId: id, policyDecision: approval.risk_level === "critical" ? "REQUIRE_APPROVAL" : "ALLOW", metadata: { task_id: approval.task_id, agent: approval.agent_slug, reason } });
-  redirectBack(`Approbation ${decision === "approved" ? "acceptée" : decision === "rejected" ? "refusée" : "annulée"}.`);
+
+  let workflowResume = "";
+  if (approval.workflow_id) {
+    const context = approval.context && typeof approval.context === "object" ? approval.context as Record<string, unknown> : {};
+    const runId = typeof context.workflow_run_id === "string" ? context.workflow_run_id : null;
+    if (runId && decision !== "canceled") {
+      const resumed = await resumeWorkflowRun(runId, decision === "approved");
+      workflowResume = resumed.ok ? " Le workflow a repris." : ` Le workflow n'a pas pu reprendre : ${resumed.error ?? "erreur"}.`;
+    }
+  }
+
+  await audit({
+    action: "approval_" + decision,
+    actorId: user.id,
+    resourceType: "ai_approval",
+    resourceId: id,
+    policyDecision: approval.risk_level === "critical" ? "REQUIRE_APPROVAL" : "ALLOW",
+    metadata: { task_id: approval.task_id, workflow_id: approval.workflow_id, agent: approval.agent_slug, reason, workflowResume },
+  });
+  redirectBack(`Approbation ${decision === "approved" ? "acceptée" : decision === "rejected" ? "refusée" : "annulée"}.${workflowResume}`);
 }
 
 export async function resolveAiIncident(form: FormData) {
