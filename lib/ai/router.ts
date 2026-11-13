@@ -131,6 +131,7 @@ async function budgetAllows(
     { type: "provider", id: provider },
     ...(accountId ? [{ type: "account", id: accountId }] : []),
     { type: "agent", id: agent },
+    { type: "team", id: "assavendo" },
     ...(workflowId ? [{ type: "workflow", id: workflowId }] : []),
     ...(taskId ? [{ type: "task", id: taskId }] : []),
   ];
