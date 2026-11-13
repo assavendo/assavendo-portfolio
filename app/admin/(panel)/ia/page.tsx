@@ -5,7 +5,7 @@ import {
   addKey, askProduct, askResearch, keyAction, saveAgent
 } from "@/app/actions/ai";
 import {
-  addManusAccount, decideAiApproval, resolveAiIncident, saveAiBudget, saveAiModel, saveAiWorkflow, setAgentTool, setAiMode,
+  addManusAccount, decideAiApproval, resolveAiIncident, runAiBenchmark, saveAiBudget, saveAiModel, saveAiWorkflow, setAgentTool, setAiMode,
   testAiAccount, toggleAiAccount, toggleAiProvider, toggleAiTool,
 } from "@/app/actions/ai-control";
 
@@ -58,7 +58,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     db.from("ai_tasks").select("*").in("status", ["pending","queued","running","awaiting_approval","approved"]).order("created_at", { ascending: false }).limit(100),
     db.from("ai_approvals").select("*").eq("status", "pending").order("created_at", { ascending: true }).limit(50),
     db.from("ai_workflows").select("id,slug,version,name,trigger_type,status,next_run_at,last_run_at,created_at,updated_at").order("updated_at", { ascending: false }).limit(50),
-    db.from("ai_workflow_runs").select("id,workflow_id,status,attempt,trigger_type,error,started_at,finished_at,created_at").order("created_at", { ascending: false }).limit(30),
+    db.from("ai_workflow_runs").select("id,workflow_id,status,attempt,current_step_order,trigger_type,error,started_at,finished_at,created_at").order("created_at", { ascending: false }).limit(30),
     db.from("ai_incidents").select("*").in("status", ["open","acknowledged"]).order("started_at", { ascending: false }).limit(50),
     db.from("ai_runs").select("*").order("created_at", { ascending: false }).limit(40),
     db.from("ai_audit_logs").select("id,timestamp,actor_type,actor_id,action,resource_type,resource_id,policy_decision,result,error").order("created_at", { ascending: false }).limit(60),
@@ -175,7 +175,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     <section className="panel">
       <h2 style={h2}>3. Models · governance</h2>
       <div className="table-scroll"><table className="tbl"><thead><tr><th>Provider / modèle</th><th>Capacités</th><th>Classification</th><th>État</th><th>Benchmark</th><th>Action</th></tr></thead><tbody>
-      {(models ?? []).map((m) => <tr key={m.id}><td><strong>{m.display_name}</strong><br/><span className="muted small">{m.provider_slug} · <code>{m.model_key}</code></span></td><td className="small">{(m.capabilities ?? []).join(", ")}</td><td className="small">{(m.data_classifications ?? []).join(", ")}</td><td><span className={`status ${statusClass(m.status)}`}>{m.status}</span></td><td>{m.benchmark_score == null ? "—" : Number(m.benchmark_score).toFixed(1)}</td><td><form action={saveAiModel} style={{ display: "flex", gap: ".35rem", flexWrap: "wrap" }}><input type="hidden" name="id" value={m.id}/><select className="input" name="status" defaultValue={m.status}><option value="candidate">candidate</option><option value="approved">approved</option><option value="disabled">disabled</option><option value="deprecated">deprecated</option></select><input className="input" name="benchmark_score" type="number" min="0" max="100" step="0.1" defaultValue={m.benchmark_score ?? ""} placeholder="score" style={{ maxWidth: 90 }}/><input className="input" name="input_usd_per_1m" type="number" min="0" step="0.0001" defaultValue={m.input_usd_per_1m ?? ""} placeholder="in $/1M" style={{ maxWidth: 110 }}/><input className="input" name="output_usd_per_1m" type="number" min="0" step="0.0001" defaultValue={m.output_usd_per_1m ?? ""} placeholder="out $/1M" style={{ maxWidth: 110 }}/><button className="btn btn-ghost btn-sm">Valider</button></form></td></tr>)}</tbody></table></div>
+      {(models ?? []).map((m) => <tr key={m.id}><td><strong>{m.display_name}</strong><br/><span className="muted small">{m.provider_slug} · <code>{m.model_key}</code></span></td><td className="small">{(m.capabilities ?? []).join(", ")}</td><td className="small">{(m.data_classifications ?? []).join(", ")}</td><td><span className={`status ${statusClass(m.status)}`}>{m.status}</span></td><td>{m.benchmark_score == null ? "—" : Number(m.benchmark_score).toFixed(1)}</td><td><form action={saveAiModel} style={{ display: "flex", gap: ".35rem", flexWrap: "wrap" }}><input type="hidden" name="id" value={m.id}/><select className="input" name="status" defaultValue={m.status}><option value="candidate">candidate</option><option value="approved">approved</option><option value="disabled">disabled</option><option value="deprecated">deprecated</option></select><input className="input" name="benchmark_score" type="number" min="0" max="100" step="0.1" defaultValue={m.benchmark_score ?? ""} placeholder="score" style={{ maxWidth: 90 }}/><input className="input" name="input_usd_per_1m" type="number" min="0" step="0.0001" defaultValue={m.input_usd_per_1m ?? ""} placeholder="in $/1M" style={{ maxWidth: 110 }}/><input className="input" name="output_usd_per_1m" type="number" min="0" step="0.0001" defaultValue={m.output_usd_per_1m ?? ""} placeholder="out $/1M" style={{ maxWidth: 110 }}/><button className="btn btn-ghost btn-sm">Valider</button>{m.status === "approved" ? <button formAction={runAiBenchmark} formNoValidate className="btn btn-ghost btn-sm">Benchmark</button> : null}</form></td></tr>)}</tbody></table></div>
     </section>
 
     <section className="panel">
@@ -190,6 +190,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
           <label className="field">Autonomie (0 observation → 4 critique)<input className="input" name="autonomy_level" type="number" min={0} max={4} defaultValue={a.autonomy_level ?? 1}/></label>
           <label className="field">Mode<select className="input" name="autonomy" defaultValue={a.autonomy ?? "draft"}><option value="draft">Brouillon / contrôlé</option><option value="auto">Automatique (support uniquement)</option></select></label>
           <label className="field">Prompt système<textarea className="input" name="system_prompt" rows={6} maxLength={8000} defaultValue={a.system_prompt}/></label>
+          <label className="field">Changelog de version<input className="input" name="changelog" maxLength={1000} placeholder="Pourquoi ce changement ?"/></label>
           <p className="muted small">Outils autorisés : {allowed.length ? allowed.join(", ") : "aucun"}</p>
           <button className="btn btn-ghost btn-sm">Enregistrer la gouvernance</button>
         </form>;
@@ -271,7 +272,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
         <button className="btn btn-ghost btn-sm">Créer la version</button>
       </form>
       <p className="muted small">Les workflows planifiés passent par /api/ai/cron et restent inactifs tant qu'ils ne sont pas explicitement activés. L'exécution est idempotente et passe par les mêmes policies, budgets, allowlists et approvals que le routage direct.</p>
-      {(workflowRuns ?? []).length ? <div className="table-scroll" style={{ marginTop: ".8rem" }}><table className="tbl"><thead><tr><th>Run</th><th>Workflow</th><th>Statut</th><th>Attempt</th><th>Déclencheur</th><th>Créée</th></tr></thead><tbody>{(workflowRuns ?? []).map((r) => <tr key={r.id}><td><code>{String(r.id).slice(0,8)}</code></td><td>{String((workflows ?? []).find((w) => w.id === r.workflow_id)?.name ?? r.workflow_id).slice(0,60)}</td><td>{r.status}</td><td>{r.attempt}</td><td>{r.trigger_type}</td><td>{fmt(r.created_at)}</td></tr>)}</tbody></table></div> : null}
+      {(workflowRuns ?? []).length ? <div className="table-scroll" style={{ marginTop: ".8rem" }}><table className="tbl"><thead><tr><th>Run</th><th>Workflow</th><th>Statut</th><th>Step</th><th>Attempt</th><th>Déclencheur</th><th>Créée</th></tr></thead><tbody>{(workflowRuns ?? []).map((r) => <tr key={r.id}><td><code>{String(r.id).slice(0,8)}</code></td><td>{String((workflows ?? []).find((w) => w.id === r.workflow_id)?.name ?? r.workflow_id).slice(0,60)}</td><td>{r.status}</td><td>{(r as { current_step_order?: number }).current_step_order ?? "—"}</td><td>{r.attempt}</td><td>{r.trigger_type}</td><td>{fmt(r.created_at)}</td></tr>)}</tbody></table></div> : null}
     </section>
 
     <section className="panel">
