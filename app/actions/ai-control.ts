@@ -191,7 +191,8 @@ export async function resolveAiIncident(form: FormData) {
 
 export async function saveAiBudget(form: FormData) {
   const { user } = await requireAdmin();
-  const id = z.string().uuid().optional().parse(form.get("id"));
+  const rawId = form.get("id");
+  const id = rawId ? z.string().uuid().parse(rawId) : undefined;
   const scopeType = z.enum(["global", "provider", "account", "agent", "workflow", "task", "team"]).parse(form.get("scope_type"));
   const scopeId = z.string().trim().min(1).max(120).parse(form.get("scope_id"));
   const daily = z.coerce.number().min(0).max(1_000_000).parse(form.get("daily_limit_usd"));
