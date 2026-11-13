@@ -5,6 +5,19 @@ begin if not ok then raise exception 'ÉCHEC : %', msg; end if; end $$;
 insert into auth.users (id) values ('55555555-5555-5555-5555-555555555551'), ('55555555-5555-5555-5555-555555555552') on conflict do nothing;
 insert into public.favorites (user_id, product_id) values ('55555555-5555-5555-5555-555555555551', '44444444-4444-4444-4444-444444444441');
 insert into public.addresses (user_id, full_name, line1, postal_code, city) values ('55555555-5555-5555-5555-555555555551', 'Awa Test', '1 rue de Test', '75001', 'Paris');
+begin;
+set local request.jwt.claim.sub = '55555555-5555-5555-5555-555555555551';
+set local role authenticated;
+select public.add_customer_address('Maison 2','Awa Test','2 rue de Test',null,'75002','Paris','FR',null);
+select public.add_customer_address('Maison 3','Awa Test','3 rue de Test',null,'75003','Paris','FR',null);
+select public.add_customer_address('Maison 4','Awa Test','4 rue de Test',null,'75004','Paris','FR',null);
+select public.add_customer_address('Maison 5','Awa Test','5 rue de Test',null,'75005','Paris','FR',null);
+select pg_temp.assert((select count(*) = 5 from public.addresses where user_id = '55555555-5555-5555-5555-555555555551'), 'plafond de 5 adresses respecté');
+do $ begin
+  begin perform public.add_customer_address('Maison 6','Awa Test','6 rue de Test',null,'75006','Paris','FR',null); raise exception 'ÉCHEC : sixième adresse acceptée';
+  exception when sqlstate 'P0001' then null; end;
+end $;
+rollback;
 
 -- chaque client ne voit que ses propres données
 begin; set local request.jwt.claim.sub = '55555555-5555-5555-5555-555555555552'; set local role authenticated;
@@ -24,7 +37,18 @@ rollback;
 -- retours : une seule demande en cours par ligne
 insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'defective' from public.order_items where title = 'Casque de test' order by id limit 1;
 do $$ begin
-  begin insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'other' from public.order_items where title = 'Casque de test' order by id limit 1; raise exception 'ÉCHEC : second retour en cours accepté';
+  begin insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'other' from public.order_items where title = 'Casque de test' order by id limit 1;
+select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'approved', 'Retour accepté', false);
+select pg_temp.assert((select status = 'approved' from public.return_requests order by created_at desc limit 1), 'retour accepté');
+select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'received', 'Colis reçu', true);
+select pg_temp.assert((select status = 'received' from public.return_requests order by created_at desc limit 1), 'retour reçu');
+select pg_temp.assert((select stock_qty = 3 from public.products where slug = 'casque-test'), 'stock remis après réception du retour');
+select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'refunded', 'Remboursement effectué dans Stripe', false);
+select pg_temp.assert((select status = 'refunded' from public.return_requests order by created_at desc limit 1), 'retour remboursé');
+do $ begin
+  begin perform public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'approved', 'réouverture interdite', false); raise exception 'ÉCHEC : retour final réouvert';
+  exception when sqlstate 'P0001' then null; end;
+end $; raise exception 'ÉCHEC : second retour en cours accepté';
   exception when unique_violation then null; end;
 end $$;
 update public.return_requests set status = 'refused';
