@@ -276,7 +276,7 @@ export async function saveAiWorkflow(form: FormData) {
   const version = Number(latest?.version ?? 0) + 1;
   const now = new Date();
   const { data: workflow, error } = await db.from("ai_workflows").insert({
-    slug, version, name, description, trigger_type, status, definition,
+    slug, version, name, description, trigger_type: triggerType, status, definition,
     next_run_at: status === "active" && triggerType === "schedule" ? new Date(now.getTime() + intervalMinutes * 60000).toISOString() : null,
     created_by: user.id,
   }).select("id").single();
