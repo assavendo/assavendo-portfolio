@@ -5,7 +5,7 @@ import {
   addKey, askProduct, askResearch, keyAction, saveAgent
 } from "@/app/actions/ai";
 import {
-  addManusAccount, decideAiApproval, resolveAiIncident, saveAiBudget, saveAiModel, setAgentTool, setAiMode,
+  addManusAccount, decideAiApproval, resolveAiIncident, saveAiBudget, saveAiModel, saveAiWorkflow, setAgentTool, setAiMode,
   testAiAccount, toggleAiAccount, toggleAiProvider, toggleAiTool,
 } from "@/app/actions/ai-control";
 
@@ -76,7 +76,6 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
   const healthyProviders = (providers ?? []).filter((p) => p.enabled && p.status === "healthy").length;
   const masterOk = Boolean(process.env.AI_MASTER_KEY);
   const mode = String(control?.mode ?? (settings?.enabled ? "FULL" : "NO_AI"));
-  const accountByCredential = new Map((accounts ?? []).filter((a) => a.credential_id).map((a) => [String(a.credential_id), a]));
 
   return <div>
     <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "flex-start", flexWrap: "wrap" }}>
