@@ -5,7 +5,7 @@ import {
   addKey, askProduct, askResearch, keyAction, saveAgent
 } from "@/app/actions/ai";
 import {
-  addManusAccount, decideAiApproval, resolveAiIncident, runAiBenchmark, saveAiBudget, saveAiModel, saveAiWorkflow, setAgentTool, setAiMode,
+  addManusAccount, decideAiApproval, resolveAiIncident, runAiBenchmark, saveAiBudget, saveAiModel, saveAiPolicy, saveAiWorkflow, setAgentTool, setAiMode,
   testAiAccount, toggleAiAccount, toggleAiProvider, toggleAiTool,
 } from "@/app/actions/ai-control";
 
@@ -53,7 +53,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     db.from("ai_tools").select("*").order("risk_level").order("name"),
     db.from("ai_agent_tools").select("agent_slug,tool_slug,allowed"),
     db.from("ai_budgets").select("*").order("scope_type").order("scope_id"),
-    db.from("ai_policies").select("slug,version,name,enabled,created_at").order("slug").order("version", { ascending: false }),
+    db.from("ai_policies").select("slug,version,name,enabled,checksum,created_at").order("slug").order("version", { ascending: false }),
     db.from("ai_routes").select("id,slug,agent_slug,task_kind,required_capability,data_classification,max_latency_ms,max_cost_usd,enabled,priority").order("priority"),
     db.from("ai_tasks").select("*").in("status", ["pending","queued","running","awaiting_approval","approved"]).order("created_at", { ascending: false }).limit(100),
     db.from("ai_approvals").select("*").eq("status", "pending").order("created_at", { ascending: true }).limit(50),
@@ -231,10 +231,19 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
 
     <section className="panel">
       <h2 style={h2}>7. Policies & routing</h2>
-      <div className="table-scroll"><table className="tbl"><thead><tr><th>Policy</th><th>Version</th><th>État</th><th>Route</th><th>Capacité</th><th>Limites</th></tr></thead><tbody>
-      {(policies ?? []).map((p) => <tr key={`${p.slug}-${p.version}`}><td>{p.name}<br/><span className="muted small">{p.slug}</span></td><td>{p.version}</td><td>{p.enabled ? "active" : "off"}</td><td colSpan={3}>Policy versionnée, décisions centralisées</td></tr>)}
-      {(routes ?? []).map((r) => <tr key={r.id}><td><span className="muted small">Route</span></td><td colSpan={2}>{r.slug}</td><td>{r.agent_slug} · {r.task_kind}</td><td>{r.required_capability}</td><td>{r.max_latency_ms ? `${r.max_latency_ms} ms` : "—"} · {money(Number(r.max_cost_usd))}</td></tr>)}
+      <div className="table-scroll"><table className="tbl"><thead><tr><th>Policy</th><th>Version</th><th>État</th><th>Checksum</th><th>Route</th><th>Capacité</th><th>Limites</th></tr></thead><tbody>
+      {(policies ?? []).map((p) => <tr key={p.slug + "-" + p.version}><td>{p.name}<br/><span className="muted small">{p.slug}</span></td><td>{p.version}</td><td>{p.enabled ? "active" : "historique"}</td><td><code>{String(p.checksum ?? "").slice(0,12)}</code></td><td colSpan={3}>Policy immuable, nouvelle modification = nouvelle version</td></tr>)}
+      {(routes ?? []).map((r) => <tr key={r.id}><td><span className="muted small">Route</span></td><td colSpan={3}>{r.slug}</td><td>{r.agent_slug} · {r.task_kind}</td><td>{r.required_capability}</td><td>{r.max_latency_ms ? String(r.max_latency_ms) + " ms" : "—"} · {money(Number(r.max_cost_usd))}</td></tr>)}
       </tbody></table></div>
+      <form action={saveAiPolicy} className="buy-form" style={{ marginTop: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: ".6rem" }}>
+          <label className="field">Slug policy<input className="input" name="slug" required maxLength={120} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="support-auto-send"/></label>
+          <label className="field">Nom<input className="input" name="name" required maxLength={160} placeholder="Policy support"/></label>
+        </div>
+        <label className="field">Description<input className="input" name="description" maxLength={1000}/></label>
+        <label className="field">Rules JSON<textarea className="input" name="rules_json" rows={6} maxLength={12000} required defaultValue={'{"default_decision":"DENY","external_content_untrusted":true}'}/></label>
+        <button className="btn btn-ghost btn-sm">Créer une nouvelle version</button>
+      </form>
     </section>
 
     <section className="panel">
@@ -267,8 +276,10 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
           <label className="field">Outil<input className="input" name="tool_slug" placeholder="create_support_draft"/></label>
           <label className="field">Policy<input className="input" name="policy_slug" placeholder="default_agent_safety"/></label>
         </div>
-        <label className="field">Prompt<textarea className="input" name="prompt" rows={3} maxLength={4000} placeholder="Instruction d'exécution strictement contrôlée"/></label>
-        <label className="f-check"><input type="checkbox" name="required_approval"/> Validation humaine obligatoire avant étape</label>
+        <label className="field">Prompt (étape legacy / optionnel si steps_json est fourni)<textarea className="input" name="prompt" rows={3} maxLength={4000} placeholder="Instruction d'exécution strictement contrôlée"/></label>
+        <label className="f-check"><input type="checkbox" name="required_approval"/> Validation humaine obligatoire avant étape legacy</label>
+        <label className="field">Steps JSON · builder multi-étapes<textarea className="input" name="steps_json" rows={12} maxLength={30000} placeholder='[{"step_key":"research","step_order":1,"action":"agent.run","agent_slug":"recherche","policy_slug":"default_agent_safety","config":{"prompt":"Analyser les produits"}},{"step_key":"approval","step_order":2,"action":"approval.create","required_approval":true,"config":{"action":"publish"}}]'></textarea></label>
+        <p className="muted small">Chaque step possède : step_key, step_order, action (noop / agent.run / tool.authorize / approval.create), agent/tool/policy optionnels, required_approval et config. Les steps sont versionnés avec le workflow.</p>
         <button className="btn btn-ghost btn-sm">Créer la version</button>
       </form>
       <p className="muted small">Les workflows planifiés passent par /api/ai/cron et restent inactifs tant qu'ils ne sont pas explicitement activés. L'exécution est idempotente et passe par les mêmes policies, budgets, allowlists et approvals que le routage direct.</p>
