@@ -69,7 +69,7 @@ export default async function AdminCollections({ searchParams }: { searchParams:
           <section className="panel" style={{ marginTop: "1rem" }} key={collection.id}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "baseline", flexWrap: "wrap" }}>
               <div><h2 style={{ margin: 0, fontSize: "1.25rem" }}>{collection.title}</h2><p className="muted small">/{collection.slug} · {current.size} produit{current.size > 1 ? "s" : ""}</p></div>
-              <span className="status s-{collection.status}">{collection.status === "published" ? "Publié" : collection.status === "archived" ? "Archivé" : "Brouillon"}</span>
+              <span className={"status s-" + collection.status}>{collection.status === "published" ? "Publié" : collection.status === "archived" ? "Archivé" : "Brouillon"}</span>
             </div>
             <form action={saveCollection} className="form-grid" style={{ marginTop: ".75rem" }}>
               <input type="hidden" name="id" value={collection.id} />
