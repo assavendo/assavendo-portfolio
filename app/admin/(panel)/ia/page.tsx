@@ -37,6 +37,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     { data: tasks },
     { data: approvals },
     { data: workflows },
+    { data: workflowRuns },
     { data: incidents },
     { data: runs },
     { data: auditLogs },
@@ -56,7 +57,8 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     db.from("ai_routes").select("id,slug,agent_slug,task_kind,required_capability,data_classification,max_latency_ms,max_cost_usd,enabled,priority").order("priority"),
     db.from("ai_tasks").select("*").in("status", ["pending","queued","running","awaiting_approval","approved"]).order("created_at", { ascending: false }).limit(100),
     db.from("ai_approvals").select("*").eq("status", "pending").order("created_at", { ascending: true }).limit(50),
-    db.from("ai_workflows").select("id,slug,version,name,trigger_type,status,created_at,updated_at").order("updated_at", { ascending: false }).limit(50),
+    db.from("ai_workflows").select("id,slug,version,name,trigger_type,status,next_run_at,last_run_at,created_at,updated_at").order("updated_at", { ascending: false }).limit(50),
+    db.from("ai_workflow_runs").select("id,workflow_id,status,attempt,trigger_type,error,started_at,finished_at,created_at").order("created_at", { ascending: false }).limit(30),
     db.from("ai_incidents").select("*").in("status", ["open","acknowledged"]).order("started_at", { ascending: false }).limit(50),
     db.from("ai_runs").select("*").order("created_at", { ascending: false }).limit(40),
     db.from("ai_audit_logs").select("id,timestamp,actor_type,actor_id,action,resource_type,resource_id,policy_decision,result,error").order("created_at", { ascending: false }).limit(60),
@@ -263,6 +265,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
         <button className="btn btn-ghost btn-sm">Créer la version</button>
       </form>
       <p className="muted small">Les workflows planifiés passent par /api/ai/cron et restent inactifs tant qu'ils ne sont pas explicitement activés. L'exécution est idempotente et passe par les mêmes policies, budgets, allowlists et approvals que le routage direct.</p>
+      {(workflowRuns ?? []).length ? <div className="table-scroll" style={{ marginTop: ".8rem" }}><table className="tbl"><thead><tr><th>Run</th><th>Workflow</th><th>Statut</th><th>Attempt</th><th>Déclencheur</th><th>Créée</th></tr></thead><tbody>{(workflowRuns ?? []).map((r) => <tr key={r.id}><td><code>{String(r.id).slice(0,8)}</code></td><td>{String((workflows ?? []).find((w) => w.id === r.workflow_id)?.name ?? r.workflow_id).slice(0,60)}</td><td>{r.status}</td><td>{r.attempt}</td><td>{r.trigger_type}</td><td>{fmt(r.created_at)}</td></tr>)}</tbody></table></div> : null}
     </section>
 
     <section className="panel">
