@@ -43,6 +43,12 @@ select pg_temp.assert((select status = 'approved' from public.return_requests or
 select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'received', 'Colis reçu', true);
 select pg_temp.assert((select status = 'received' from public.return_requests order by created_at desc limit 1), 'retour reçu');
 select pg_temp.assert((select stock_qty = 3 from public.products where slug = 'casque-test'), 'stock remis après réception du retour');
+update public.orders set status = 'paid' where id = (select order_id from public.return_requests order by created_at desc limit 1);
+do $ begin
+  begin perform public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'refunded', 'Remboursement trop tôt', false); raise exception 'ÉCHEC : remboursement clôturé avant Stripe';
+  exception when sqlstate = 'P0001' then null; end;
+end $;
+update public.orders set status = 'refunded' where id = (select order_id from public.return_requests order by created_at desc limit 1);
 select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'refunded', 'Remboursement effectué dans Stripe', false);
 select pg_temp.assert((select status = 'refunded' from public.return_requests order by created_at desc limit 1), 'retour remboursé');
 do $ begin
