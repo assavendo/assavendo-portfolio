@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { decryptSecret } from "@/lib/ai/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
 import { callChat } from "@/lib/ai/router";
 import { manusHealthCheck } from "@/lib/ai/manus";
 import { scrub, type KeyRow } from "@/lib/ai/policy";
@@ -40,6 +40,44 @@ async function audit(input: {
     error: input.error ?? null,
     metadata: input.metadata ?? {},
   });
+}
+
+export async function addManusAccount(form: FormData) {
+  const { user } = await requireAdmin();
+  const name = z.string().trim().min(1).max(120).parse(form.get("name"));
+  const secret = z.string().trim().min(10).max(400).parse(form.get("secret"));
+  const agentProfile = z.enum(["standard", "lite", "max"]).parse(form.get("agent_profile") ?? "standard");
+  let secretEnc: string;
+  try { secretEnc = encryptSecret(secret); } catch (error) { return redirectBack(error instanceof Error ? error.message : "Chiffrement Manus impossible.", "erreur"); }
+  const db = supabaseAdmin();
+  const { data: key, error: keyError } = await db.from("manus_keys").insert({
+    label: name,
+    secret_enc: secretEnc,
+    key_hint: secret.slice(-4),
+    agent_profile: agentProfile,
+    priority: 100,
+    enabled: true,
+  }).select("id").single();
+  if (keyError || !key) return redirectBack("Credential Manus non enregistré.", "erreur");
+  const { error: accountError } = await db.from("ai_accounts").insert({
+    provider_slug: "manus",
+    name,
+    environment: "production",
+    credential_type: "manus_key",
+    credential_id: key.id,
+    status: "active",
+    allowed_agents: [],
+    quota: {},
+    rate_limits: { "task.create_per_minute": 10 },
+    cost_policy: {},
+    metadata: { agent_profile: agentProfile },
+  });
+  if (accountError) {
+    await db.from("manus_keys").delete().eq("id", key.id);
+    return redirectBack("Credential Manus supprimé : le compte de gouvernance n'a pas pu être créé.", "erreur");
+  }
+  await audit({ action: "add_manus_account", actorId: user.id, resourceType: "ai_account", resourceId: String(key.id), metadata: { agent_profile: agentProfile } });
+  redirectBack("Compte Manus ajouté et gouverné. Testez-le avant de l'utiliser.");
 }
 
 export async function setAiMode(form: FormData) {
