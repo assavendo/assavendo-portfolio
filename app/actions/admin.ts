@@ -229,6 +229,101 @@ export async function saveProduct(_: unknown, form: FormData): Promise<AdminStat
   if (!d.id) redirect(`/admin/produits?id=${id}&cree=1`);
   return { ok: "Produit enregistré." };
 }
+
+
+const productVariantSchema = z.object({
+  id: z.string().uuid().optional().or(z.literal("")),
+  product_id: z.string().uuid(),
+  label: z.string().trim().min(1, "Le libellé de la variante est obligatoire.").max(160),
+  sku: z.string().trim().max(64).optional().or(z.literal("")),
+  options_json: z.string().trim().max(4000).optional().or(z.literal("")),
+  price: z.string().trim().max(30).optional().or(z.literal("")),
+  stock_qty: z.coerce.number().int().min(0).max(1_000_000),
+  sort: z.coerce.number().int().min(0).max(100_000),
+  active: z.string().optional(),
+});
+
+export async function saveProductVariant(_: unknown, form: FormData): Promise<AdminState> {
+  const { sb } = await requireAdmin();
+  const values = formValues(form);
+  const fail = (error: string): AdminState => ({ error, values });
+  const parsed = productVariantSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Variante invalide.");
+
+  const d = parsed.data;
+  const { data: product } = await sb.from("products").select("id").eq("id", d.product_id).maybeSingle();
+  if (!product) return fail("Produit introuvable.");
+
+  let options: Record<string, string> = {};
+  const optionsJson = d.options_json ?? "";
+  if (optionsJson) {
+    try {
+      const raw = JSON.parse(optionsJson) as unknown;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fail("Les options doivent être un objet JSON.");
+      const entries = Object.entries(raw);
+      if (entries.length > 20) return fail("Une variante ne peut pas contenir plus de 20 options.");
+      for (const [key, value] of entries) {
+        const k = key.trim().slice(0, 80);
+        if (!k || typeof value !== "string" || value.trim().length > 120) return fail("Chaque option doit être un couple clé/valeur texte, borné.");
+        options[k] = value.trim();
+      }
+    } catch {
+      return fail("Le JSON des options est invalide.");
+    }
+  }
+
+  let price_cents: number | null = null;
+  if (d.price) {
+    const parsedPrice = euros(form, "price");
+    if (parsedPrice === "invalid") return fail("Le prix de la variante est invalide.");
+    price_cents = parsedPrice;
+  }
+
+  const sku = d.sku.trim() || null;
+  const row = {
+    product_id: d.product_id,
+    sku,
+    label: d.label,
+    options,
+    price_cents,
+    stock_qty: d.stock_qty,
+    active: d.active === "on",
+    sort: d.sort,
+  };
+
+  if (d.id) {
+    const { data: current, error: currentError } = await sb.from("product_variants").select("id,product_id").eq("id", d.id).maybeSingle();
+    if (currentError || !current || current.product_id !== d.product_id) return fail("Variante introuvable pour ce produit.");
+    const { error } = await sb.from("product_variants").update(row).eq("id", d.id).eq("product_id", d.product_id);
+    if (error) return fail(error.code === "23505" ? "Cette référence SKU existe déjà." : "Variante non enregistrée : " + error.message);
+  } else {
+    const { error } = await sb.from("product_variants").insert(row);
+    if (error) return fail(error.code === "23505" ? "Cette référence SKU existe déjà." : "Variante non créée : " + error.message);
+  }
+
+  revalidateTag("products");
+  revalidatePath("/boutique");
+  revalidatePath("/numerique");
+  revalidatePath("/promotions");
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/produits?id=" + d.product_id);
+  return { ok: d.id ? "Variante enregistrée." : "Variante créée." };
+}
+
+export async function deleteProductVariant(_: unknown, form: FormData): Promise<AdminState> {
+  const { sb } = await requireAdmin();
+  const productId = z.string().uuid().parse(form.get("product_id"));
+  const id = z.string().uuid().parse(form.get("id"));
+  const { error } = await sb.from("product_variants").delete().eq("id", id).eq("product_id", productId);
+  if (error) return { error: "Suppression impossible : " + error.message };
+  revalidateTag("products");
+  revalidatePath("/boutique");
+  revalidatePath("/numerique");
+  revalidatePath("/promotions");
+  revalidatePath("/admin/produits");
+  return { ok: "Variante supprimée." };
+}
+
 export async function deleteProduct(form: FormData) {
   const { sb } = await requireAdmin();
   const { error } = await sb.from("products").delete().eq("id", z.string().uuid().parse(form.get("id")));
