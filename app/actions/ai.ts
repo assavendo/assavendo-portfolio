@@ -90,11 +90,21 @@ export async function saveSettings(form: FormData) {
 
 export async function saveAgent(form: FormData) {
   await requireAdmin();
-  const p = z.object({ slug: z.enum(["support", "recherche", "catalogue"]), autonomy: z.enum(["draft", "auto"]), system_prompt: z.string().trim().min(20).max(8000) }).safeParse(Object.fromEntries(form));
+  const p = z.object({ slug: z.string().trim().min(2).max(80), autonomy: z.enum(["draft", "auto"]), system_prompt: z.string().trim().min(20).max(8000) }).safeParse(Object.fromEntries(form));
   if (!p.success) return back("Consigne trop courte ou réglage invalide.", "erreur");
-  // Le mode « auto » n'existe que pour le support : la recherche et le catalogue ne publient jamais seuls.
-  const autonomy = p.data.slug === "support" ? p.data.autonomy : "draft";
-  await supabaseAdmin().from("ai_agents").update({ enabled: form.get("enabled") === "on", autonomy, system_prompt: p.data.system_prompt, updated_at: new Date().toISOString() }).eq("slug", p.data.slug);
+  const allowAuto = p.data.slug === "support" || p.data.slug === "customer_support";
+  const autonomy = allowAuto ? p.data.autonomy : "draft";
+  const db = supabaseAdmin();
+  const { error } = await db.from("ai_agents").update({
+    enabled: form.get("enabled") === "on",
+    autonomy,
+    system_prompt: p.data.system_prompt,
+    version: z.coerce.number().int().min(1).max(100000).catch(1).parse(form.get("version")),
+    autonomy_level: z.coerce.number().int().min(0).max(4).catch(1).parse(form.get("autonomy_level")),
+    objective: z.string().trim().max(500).catch("").parse(form.get("objective")),
+    updated_at: new Date().toISOString()
+  }).eq("slug", p.data.slug);
+  if (error) return back("Agent non enregistré.", "erreur");
   return back("Agent enregistré.");
 }
 
