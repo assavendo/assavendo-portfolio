@@ -18,7 +18,7 @@ export function MfaEnrollment() {
       const { data: factors, error: listError } = await sb.auth.mfa.listFactors();
       if (listError) throw listError;
       for (const factor of factors?.totp ?? []) {
-        if (factor.status === "unverified") await sb.auth.mfa.unenroll({ factorId: factor.id });
+        if (String(factor.status) === "unverified") {\n          const { error: unenrollError } = await sb.auth.mfa.unenroll({ factorId: factor.id });\n          if (unenrollError) throw unenrollError;\n        }
       }
       const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Assavendo Admin" });
       if (error || !data?.id || !data.totp) throw error ?? new Error("Configuration MFA impossible.");
