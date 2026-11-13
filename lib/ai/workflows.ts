@@ -22,6 +22,8 @@ function intervalMs(definition: Record<string, unknown>): number {
 }
 
 async function claimRun(db: ReturnType<typeof supabaseAdmin>, workflow: WorkflowRow, now: string) {
+  const { count: runningCount } = await db.from("ai_workflow_runs").select("id", { count: "exact", head: true }).eq("workflow_id", workflow.id).eq("status", "running");
+  if ((runningCount ?? 0) >= Number(workflow.concurrency_limit ?? 1)) return null;
   const key = `${workflow.id}:${workflow.next_run_at ?? now}`;
   const { data: inserted, error: insertError } = await db.from("ai_workflow_runs").insert({
     workflow_id: workflow.id,
@@ -118,14 +120,15 @@ export async function runWorkflow(workflowId: string, context: Record<string, un
       const stepResult = await executeStep(workflow, step, { ...context, mode: context.mode ?? "SAFE" });
       results.push({ action: step.action, ...stepResult });
       if (!stepResult.ok) {
+        const waitingApproval = "waitingApproval" in stepResult && Boolean(stepResult.waitingApproval);
         await db.from("ai_workflow_runs").update({
-          status: stepResult.waitingApproval ? "waiting_approval" : "failed",
+          status: waitingApproval ? "waiting_approval" : "failed",
           result: { steps: results },
           error: stepResult.error ?? null,
-          finished_at: stepResult.waitingApproval ? null : new Date().toISOString(),
+          finished_at: waitingApproval ? null : new Date().toISOString(),
         }).eq("id", runId);
-        if (!stepResult.waitingApproval) await db.from("ai_workflows").update({ last_run_at: now }).eq("id", workflow.id);
-        return { ok: false, waitingApproval: Boolean(stepResult.waitingApproval), error: stepResult.error };
+        if (!waitingApproval) await db.from("ai_workflows").update({ last_run_at: now }).eq("id", workflow.id);
+        return { ok: false, waitingApproval, error: stepResult.error };
       }
     }
 
