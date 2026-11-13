@@ -22,14 +22,14 @@ const schema = z.object({
 /** Pays de livraison proposés pour les produits physiques (marchés ouverts à la livraison : table public.markets). */
 type MarketRow = { code: string; sell_enabled: boolean; ship_enabled: boolean; tax_status: string; shipping_status: string; compliance_status: string; pricing_status: string; payment_status: string };
 const MARKET_OK = new Set(["approved", "legacy"]);
-async function sellableShippingCountries(db: ReturnType<typeof supabaseAdmin>) {
+async function sellableShippingCountries(db: ReturnType<typeof supabaseAdmin>): Promise<Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[]> {
   const { data, error } = await db.from("markets")
     .select("code,sell_enabled,ship_enabled,tax_status,shipping_status,compliance_status,pricing_status,payment_status");
   if (error) throw error;
   return ((data ?? []) as MarketRow[])
     .filter((m) => m.sell_enabled && m.ship_enabled && [m.tax_status, m.shipping_status, m.compliance_status, m.pricing_status, m.payment_status].every((s) => MARKET_OK.has(s)))
     .map((m) => m.code)
-    .filter((code, i, all) => all.indexOf(code) === i);
+    .filter((code, i, all) => /^[A-Z]{2}$/.test(code) && all.indexOf(code) === i) as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[];
 }
 type CartOrderRow = { order_id: string | null; amount_cents: number; subtotal_cents: number; shipping_cents: number; has_physical: boolean; items: { product_id: string; title: string; variant_label: string | null; unit_price_cents: number; qty: number; kind: string; image: string | null }[]; error: string | null };
 
@@ -103,7 +103,7 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
     const session = await stripe.checkout.sessions.create({
       mode: "payment", customer_email: email, client_reference_id: order.order_id, locale: "fr",
       billing_address_collection: "required",
-      ...(order.has_physical ? { shipping_address_collection: { allowed_countries: allowedCountries as [string, ...string[]] } } : {}),
+      ...(order.has_physical ? { shipping_address_collection: { allowed_countries: allowedCountries } } : {}),
       invoice_creation: { enabled: true },
       automatic_tax: { enabled: taxOn },
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,   // la réservation de stock dure 35 minutes : la session expire avant
