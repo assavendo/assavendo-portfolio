@@ -58,7 +58,7 @@ export function MfaEnrollment() {
         <div style={{ display: "grid", gap: ".8rem" }}>
           <p>Scannez le QR code, puis saisissez le code à 6 chiffres généré par votre application.</p>
           <div style={{ width: 220, maxWidth: "100%", padding: ".7rem", background: "#fff", borderRadius: 8 }}>
-            <img src={`data:image/svg+xml;utf8,${encodeURIComponent(setup.qr)}`} alt="QR code pour configurer le second facteur" style={{ display: "block", width: "100%", height: "auto" }} />
+            <Image src={`data:image/svg+xml;utf8,${encodeURIComponent(setup.qr)}`} alt="QR code pour configurer le second facteur" width={220} height={220} unoptimized style={{ display: "block", width: "100%", height: "auto" }} />
           </div>
           <p className="small muted">Clé de secours manuelle : <code>{setup.secret}</code></p>
           <label className="field">Code de vérification
