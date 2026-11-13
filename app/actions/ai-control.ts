@@ -206,7 +206,7 @@ export async function decideAiApproval(form: FormData) {
   const decision = z.enum(["approved", "rejected", "canceled"]).parse(form.get("decision"));
   const reason = z.string().trim().max(1000).parse(form.get("reason") ?? "");
   const db = supabaseAdmin();
-  const { data: approval } = await db.from("ai_approvals").select("id,status,task_id,agent_slug,risk_level").eq("id", id).maybeSingle();
+  const { data: approval } = await db.from("ai_approvals").select("id,status,task_id,workflow_id,agent_slug,risk_level,context,expires_at").eq("id", id).maybeSingle();
   if (!approval || approval.status !== "pending") return redirectBack("Approbation introuvable ou déjà décidée.", "erreur");
   if (decision === "approved" && approval.risk_level === "critical" && !reason) return redirectBack("Une justification est obligatoire pour une approbation critique.", "erreur");
   const now = new Date().toISOString();
