@@ -240,6 +240,29 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     <section className="panel">
       <h2 style={h2}>9. Workflows</h2>
       {(workflows ?? []).length === 0 ? <p className="muted">Aucun workflow enregistré.</p> : <div className="table-scroll"><table className="tbl"><thead><tr><th>Workflow</th><th>Trigger</th><th>Statut</th><th>Version</th><th>Mis à jour</th></tr></thead><tbody>{(workflows ?? []).map((w) => <tr key={w.id}><td><strong>{w.name}</strong><br/><span className="muted small">{w.slug}</span></td><td>{w.trigger_type}</td><td>{w.status}</td><td>{w.version}</td><td>{fmt(w.updated_at)}</td></tr>)}</tbody></table></div>}
+      <h3 style={{ fontSize: "1.05rem", marginTop: "1rem" }}>Créer une version de workflow</h3>
+      <form action={saveAiWorkflow} className="buy-form">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: ".6rem" }}>
+          <label className="field">Slug<input className="input" name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required maxLength={80} placeholder="support-daily-review"/></label>
+          <label className="field">Nom<input className="input" name="name" required maxLength={120}/></label>
+        </div>
+        <label className="field">Description<textarea className="input" name="description" rows={2} maxLength={1000}/></label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: ".6rem" }}>
+          <label className="field">Trigger<select className="input" name="trigger_type"><option value="manual">manual</option><option value="schedule">schedule</option><option value="event">event</option><option value="condition">condition</option></select></label>
+          <label className="field">Statut<select className="input" name="status"><option value="draft">draft</option><option value="active">active</option><option value="paused">paused</option><option value="disabled">disabled</option></select></label>
+          <label className="field">Intervalle (min)<input className="input" name="interval_minutes" type="number" min="1" max="1440" defaultValue="60"/></label>
+          <label className="field">Action<select className="input" name="step_action"><option value="noop">noop</option><option value="agent.run">agent.run</option><option value="tool.authorize">tool.authorize</option><option value="approval.create">approval.create</option></select></label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: ".6rem" }}>
+          <label className="field">Agent<input className="input" name="agent_slug" placeholder="support"/></label>
+          <label className="field">Outil<input className="input" name="tool_slug" placeholder="create_support_draft"/></label>
+          <label className="field">Policy<input className="input" name="policy_slug" placeholder="default_agent_safety"/></label>
+        </div>
+        <label className="field">Prompt<textarea className="input" name="prompt" rows={3} maxLength={4000} placeholder="Instruction d'exécution strictement contrôlée"/></label>
+        <label className="f-check"><input type="checkbox" name="required_approval"/> Validation humaine obligatoire avant étape</label>
+        <button className="btn btn-ghost btn-sm">Créer la version</button>
+      </form>
+      <p className="muted small">Les workflows planifiés passent par /api/ai/cron et restent inactifs tant qu'ils ne sont pas explicitement activés. L'exécution est idempotente et passe par les mêmes policies, budgets, allowlists et approvals que le routage direct.</p>
     </section>
 
     <section className="panel">
