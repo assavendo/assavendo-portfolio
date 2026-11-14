@@ -1,4 +1,3 @@
-import { getPublishedProducts } from "@/lib/data";
 import { supabasePublic } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
 import type { Product } from "@/lib/types";
@@ -45,8 +44,17 @@ export async function getPublishedCollectionBySlug(slug: string): Promise<Editor
     .order("sort", { ascending: true });
   if (itemsError) return null;
 
-  const products = await getPublishedProducts();
-  const byId = new Map(products.map((p) => [p.id, p]));
+  const productIds = (items ?? []).map((item) => item.product_id);
+  if (!productIds.length) return { ...(collection as EditorialCollection), products: [] };
+
+  const { data: products, error: productsError } = await supabasePublic()
+    .from("products")
+    .select("*")
+    .in("id", productIds)
+    .eq("status", "published");
+  if (productsError) return null;
+
+  const byId = new Map((products ?? []).map((p) => [(p as Product).id, p as Product]));
   const ordered = (items ?? [])
     .map((item) => byId.get(item.product_id))
     .filter((p): p is Product => Boolean(p));
