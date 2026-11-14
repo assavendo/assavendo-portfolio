@@ -77,6 +77,9 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
   }
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   const taxOn = process.env.STRIPE_TAX_ENABLED === "true";
+  // Stripe uses this label to identify and compare Checkout flows in the Dashboard.
+  // The suffix is intentionally eight random letters, matching Stripe's current integration guidance.
+  const integrationIdentifier = `assavendo_checkout_${Array.from({ length: 8 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}`;
   const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = order.items.filter((i) => i.unit_price_cents > 0).map((i) => ({
     quantity: i.qty,
     price_data: { currency: "eur", unit_amount: i.unit_price_cents, tax_behavior: "inclusive", product_data: { name: i.variant_label ? `${i.title} (${i.variant_label})` : i.title, ...(i.image?.startsWith("https://") ? { images: [i.image] } : {}) } },
@@ -102,6 +105,7 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "payment", customer_email: email, client_reference_id: order.order_id, locale: "fr",
+      integration_identifier: integrationIdentifier,
       billing_address_collection: "required",
       ...(order.has_physical ? { shipping_address_collection: { allowed_countries: allowedCountries } } : {}),
       invoice_creation: { enabled: true },
