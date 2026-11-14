@@ -9,6 +9,7 @@ BEGIN
     'dropship_imports','manus_keys','product_likes','product_shares',
     'rate_limits','stock_movements','stripe_events','problems_backup_20261019'
   ] LOOP
+    IF to_regclass('public.' || t) IS NULL THEN CONTINUE; END IF;
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'deny_client_access', t);
     EXECUTE format(
       'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)',
@@ -23,6 +24,7 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'admins','domains','orders','problems','product_deliverables','products'
   ] LOOP
+    IF to_regclass('backup_20261020.' || t) IS NULL THEN CONTINUE; END IF;
     EXECUTE format('DROP POLICY IF EXISTS %I ON backup_20261020.%I', 'deny_client_access', t);
     EXECUTE format(
       'CREATE POLICY %I ON backup_20261020.%I AS RESTRICTIVE FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)',
@@ -84,7 +86,11 @@ GRANT EXECUTE ON FUNCTION public.admin_renew_download(uuid, integer) TO authenti
 CREATE INDEX IF NOT EXISTS ai_runs_key_id_idx ON public.ai_runs (key_id);
 CREATE INDEX IF NOT EXISTS ai_tasks_agent_idx ON public.ai_tasks (agent);
 CREATE INDEX IF NOT EXISTS collection_items_product_id_idx ON public.collection_items (product_id);
-CREATE INDEX IF NOT EXISTS dropship_imports_manus_key_id_idx ON public.dropship_imports (manus_key_id);
+DO $ BEGIN
+  IF to_regclass('public.dropship_imports') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS dropship_imports_manus_key_id_idx ON public.dropship_imports (manus_key_id);
+  END IF;
+END $;
 CREATE INDEX IF NOT EXISTS favorites_product_id_idx ON public.favorites (product_id);
 CREATE INDEX IF NOT EXISTS markets_updated_by_idx ON public.markets (updated_by);
 CREATE INDEX IF NOT EXISTS order_items_variant_id_idx ON public.order_items (variant_id);
