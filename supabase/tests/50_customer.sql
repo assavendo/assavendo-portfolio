@@ -35,31 +35,70 @@ select pg_temp.assert((select count(*) = 0 from public.return_requests), 'demand
 rollback;
 
 -- retours : une seule demande en cours par ligne
-insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'defective' from public.order_items where title = 'Casque de test' order by id limit 1;
-do $$ begin
-  begin insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'other' from public.order_items where title = 'Casque de test' order by id limit 1;
+insert into public.return_requests (order_id, order_item_id, email, reason)
+select order_id, id, 'pay@exemple.fr', 'defective'
+from public.order_items
+where title = 'Casque de test'
+order by id
+limit 1;
+
+do $$
+begin
+  begin
+    insert into public.return_requests (order_id, order_item_id, email, reason)
+    select order_id, id, 'pay@exemple.fr', 'other'
+    from public.order_items
+    where title = 'Casque de test'
+    order by id
+    limit 1;
+    raise exception 'ÉCHEC : second retour en cours accepté';
+  exception when unique_violation then null;
+  end;
+end $$;
+
 select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'approved', 'Retour accepté', false);
 select pg_temp.assert((select status = 'approved' from public.return_requests order by created_at desc limit 1), 'retour accepté');
 select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'received', 'Colis reçu', true);
 select pg_temp.assert((select status = 'received' from public.return_requests order by created_at desc limit 1), 'retour reçu');
 select pg_temp.assert((select stock_qty = 3 from public.products where slug = 'casque-test'), 'stock remis après réception du retour');
-update public.orders set status = 'paid' where id = (select order_id from public.return_requests order by created_at desc limit 1);
-do $ begin
-  begin perform public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'refunded', 'Remboursement trop tôt', false); raise exception 'ÉCHEC : remboursement clôturé avant Stripe';
-  exception when sqlstate = 'P0001' then null; end;
-end $;
-update public.orders set status = 'refunded' where id = (select order_id from public.return_requests order by created_at desc limit 1);
+
+update public.orders
+set status = 'paid'
+where id = (select order_id from public.return_requests order by created_at desc limit 1);
+
+do $$
+begin
+  begin
+    perform public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'refunded', 'Remboursement trop tôt', false);
+    raise exception 'ÉCHEC : remboursement clôturé avant Stripe';
+  exception when sqlstate 'P0001' then null;
+  end;
+end $$;
+
+update public.orders
+set status = 'refunded'
+where id = (select order_id from public.return_requests order by created_at desc limit 1);
+
 select public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'refunded', 'Remboursement effectué dans Stripe', false);
 select pg_temp.assert((select status = 'refunded' from public.return_requests order by created_at desc limit 1), 'retour remboursé');
-do $ begin
-  begin perform public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'approved', 'réouverture interdite', false); raise exception 'ÉCHEC : retour final réouvert';
-  exception when sqlstate 'P0001' then null; end;
-end $; raise exception 'ÉCHEC : second retour en cours accepté';
-  exception when unique_violation then null; end;
+
+do $$
+begin
+  begin
+    perform public.admin_process_return((select id from public.return_requests order by created_at desc limit 1), 'approved', 'réouverture interdite', false);
+    raise exception 'ÉCHEC : retour final réouvert';
+  exception when sqlstate 'P0001' then null;
+  end;
 end $$;
+
 update public.return_requests set status = 'refused';
 select pg_temp.assert((select count(*) = 1 from (select 1 from public.return_requests) x), 'demande refusée conservée');
-insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'other' from public.order_items where title = 'Casque de test' order by id limit 1;
+insert into public.return_requests (order_id, order_item_id, email, reason)
+select order_id, id, 'pay@exemple.fr', 'other'
+from public.order_items
+where title = 'Casque de test'
+order by id
+limit 1;
 
 -- campagne post-achat : invitation créée au paiement et activée après livraison physique
 begin;
