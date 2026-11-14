@@ -185,7 +185,7 @@ export async function generatePremiumImage(input: Input): Promise<GeneratedImage
     if (result.ok && result.bytes && result.contentType) {
       const today = new Date().toISOString().slice(0, 10);
       await db.from("ai_keys").update({ used_day: today, used_today: (key.used_day === today ? key.used_today : 0) + 1, fail_count: 0, last_error: null, last_ok_at: new Date().toISOString(), cooldown_until: null }).eq("id", key.id);
-      return { ...result, provider: key.provider, model: key.model, keyId: key.id, keyLabel: key.label, attempts, requestId: result.requestId ?? null };
+      return { ok: true, status: 200, bytes: result.bytes, contentType: result.contentType, provider: key.provider, model: key.model, keyId: key.id, keyLabel: key.label, attempts, requestId: result.requestId ?? null };
     }
     const failure = classifyFailure(result.status, null, scrub(result.detail ?? ""));
     lastError = scrub(key.label + " : " + failure.message);
@@ -230,7 +230,7 @@ export async function generatePremiumImage(input: Input): Promise<GeneratedImage
           last_ok_at: new Date().toISOString(),
           cooldown_until: null,
         }).eq("id", key.id);
-        return { ...result, provider: "manus", model: "manus-" + profile, keyId: String(key.id), keyLabel: String(key.label), attempts, requestId: result.requestId ?? null };
+        return { ok: true, status: 200, bytes: result.bytes, contentType: result.contentType, provider: "manus", model: "manus-" + profile, keyId: String(key.id), keyLabel: String(key.label), attempts, requestId: result.requestId ?? null };
       }
       lastError = scrub("Manus " + key.label + " : " + (result.detail ?? "échec"));
       const failure = classifyFailure(result.status, null, result.detail ?? "");
