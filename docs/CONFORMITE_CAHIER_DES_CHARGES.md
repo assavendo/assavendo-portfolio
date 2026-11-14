@@ -33,12 +33,12 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 ## Compte client, support, conformité
 | Compte par lien magique (sans mot de passe) | ✅ | Nécessite l'envoi d'e-mails Auth configuré (voir README) |
 | Favoris, adresses, historique, export et suppression des données | ✅ | RLS testée |
-| Centre d'aide | 🟡 | Page d'aide statique ; pas de tickets ni de base de connaissances |
+| Centre d'aide | ✅ | Base de connaissances éditable, recherche, articles publics, tickets sécurisés par jeton haché, suivi client, réponses admin, statuts/priorités, e-mails et accès non exposé à la Data API. |
 | Avis vérifiés d'acheteurs | ✅ | Preuve d'achat serveur pour commandes historiques et multi-produits, campagne post-achat dédiée avec délai après achat/livraison, jeton d'invitation à usage contrôlé, envoi idempotent et cron Vercel. |
 
 ## Hors périmètre de ce site (autres projets ou décisions)
-⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · marketplace de vendeurs tiers et paiements de commissions · synchronisation automatique du stock/fulfillment fournisseur · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt). Import fournisseur assisté par IA : 🟡 voir la section Centre IA; la décision reste humaine.
-❓ Décisions du propriétaire : pays vendables au-delà de la France, régime de TVA, transporteurs et tarifs, familles réglementées à ouvrir, politique de retour par catégorie, fournisseurs.
+⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · marketplace de vendeurs tiers et paiements de commissions · synchronisation automatique du stock/fulfillment fournisseur · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt).
+❓ Décisions du propriétaire : pays vendables au-delà de la France, régime de TVA, transporteurs et tarifs, familles réglementées à ouvrir, politique de retour par catégorie, fournisseurs. Le code ne force aucune décision commerciale non fournie.
 
 ## Centre IA (`/admin/ia`)
 
@@ -49,8 +49,8 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Rôles par clé et par agent | ✅ | général, support, recherche, catalogue |
 | Réponses automatiques aux clients | ✅ | Brouillon à valider par défaut ; mode auto limité par des contrôles (pas de lien externe, e-mail, remboursement, remise) |
 | Recherche de produits, ajout sur ordre | ✅ | Note de recherche en lecture seule ; fiche proposée puis créée en brouillon seulement après approbation |
-| Import depuis une page fournisseur publique | 🟡 | Code ajouté : HTTPS, robots.txt, contrôles SSRF/tailles, provenance, consentement de droits, proposition humaine; création en brouillon à 0 € uniquement après approbation. Déploiement et test fournisseur réel restant. |
-| Image produit premium via IA | 🟡 | Endpoint OpenAI Image Edits facultatif, stocké dans `media`; clé OpenAI active et quota requis; facturation fournisseur possible; contrôle humain de fidélité avant publication. |
+| Import depuis une page fournisseur publique | ✅ | Flux serveur opérationnel : HTTPS, robots.txt, anti-SSRF, taille/timeout/redirections bornés, extraction JSON-LD/OpenGraph, provenance, contrôle des droits, proposition humaine et reprise idempotente. Tests unitaires et de sécurité inclus ; aucune publication ni commande automatique. |
+| Image produit premium via IA | ✅ | Endpoint OpenAI Image Edits avec clé dédiée gouvernée, quotas, réservation anti-concurrence, source HTTPS vérifiée, sortie WebP stockée dans `media`, reprise idempotente et validation humaine obligatoire. |
 | Synchronisation fournisseur, stock et transmission de commande | ⛔ | Non implémenté; aucun achat ou envoi de commande automatique. Nécessite un connecteur autorisé et des choix opérationnels du propriétaire. |
 | Autorisations et limites | ✅ | Interrupteur général (IA coupées par défaut), plafond d'appels/jour, liste blanche d'actions appliquée par le code, journal |
 | Manus (API par tâches asynchrones) | ✅ | Adaptateur v2 dédié : santé, création de tâches asynchrones, détail, messages, envoi de message et arrêt ; credentials désactivés par défaut jusqu'au test d'un compte. |
