@@ -56,13 +56,10 @@ insert into public.collections (id, slug, title, description, status, sort)
 values ('44444444-4444-4444-4444-444444444444', 'collection-test', 'Collection de test', 'Sélection de démonstration.', 'published', 10);
 insert into public.collection_items (collection_id, product_id, sort)
 values ('44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 10);
-do $ begin
-  begin
-    insert into public.collection_items (collection_id, product_id, sort)
-    values ('44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 20);
-    raise exception 'ÉCHEC : doublon de produit dans une collection accepté';
-  exception when unique_violation then null; end;
-end $;
+insert into public.collection_items (collection_id, product_id, sort)
+values ('44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 20)
+on conflict do nothing;
+select pg_temp.assert((select count(*) = 1 from public.collection_items where collection_id = '44444444-4444-4444-4444-444444444444'), 'doublon de produit dans une collection ignoré par la contrainte unique');
 insert into public.collections (id, slug, title, status, sort)
 values ('55555555-5555-5555-5555-555555555555', 'collection-brouillon', 'Collection brouillon', 'draft', 20);
 insert into public.collection_items (collection_id, product_id, sort)
