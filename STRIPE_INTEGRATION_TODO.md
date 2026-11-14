@@ -57,15 +57,15 @@ Do not expose secret Stripe keys in browser code, source control, or AI-agent ou
 
 ### Stripe webhook
 
-The Live webhook endpoint is configured as:
+The Live webhook endpoint is configured and enabled as:
 
 `https://assavendo.vercel.app/api/stripe/webhook`
 
-The endpoint is configured for Checkout and invoice/refund lifecycle events. Verify its delivery health in Stripe Workbench after the production deployment is running.
+The endpoint is configured for Checkout, invoice, and refund lifecycle events. Verify its delivery health in Stripe Workbench after the production deployment is running.
 
 ### Tax
 
-Stripe Tax settings are active, but no tax registration is currently configured. Do not switch `STRIPE_TAX_ENABLED` to `true` until the merchant has confirmed the exact countries/states where Assavendo is registered to collect tax.
+Stripe Tax settings are active and the Live account now has an active GB tax registration. However, Checkout Studio explicitly configured `automatic_tax.enabled=false`, so the application correctly leaves automatic tax calculation disabled for Checkout. Do not enable `STRIPE_TAX_ENABLED` or change the Checkout tax setting independently of the finalized Checkout Studio configuration.
 
 ### Project structure
 
@@ -101,6 +101,7 @@ Never use real payment-card data in development or testing.
 ### Before production validation
 
 - Confirm the current branch changes are merged into the production branch only when ready.
+- Confirm the Live Stripe account shows the expected Checkout branding and active GB tax registration.
 - Run the project's verification/build checks.
 - Open the live Checkout from the Assavendo storefront and verify the hosted payment flow end-to-end.
 - Confirm the Stripe webhook receives and processes the Checkout event successfully.
