@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { hashSupportToken } from "@/app/actions/support";
+import { hashSupportToken } from "@/lib/support";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { SupportReplyForm } from "@/components/SupportReplyForm";
-import { siteUrl } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Mon ticket", robots: { index: false, follow: false }, referrer: "no-referrer" };
 export const dynamic = "force-dynamic";
@@ -38,7 +37,7 @@ export default async function TicketPage({ params }: { params: Promise<{ token: 
         <span className="status s-draft">{STATUS[ticket.status] ?? ticket.status}</span>
       </div>
       <p className="muted">{ticket.subject} · {ticket.category} · créé le {new Date(ticket.created_at).toLocaleString("fr-FR")}</p>
-      <div className="stack" style={{ marginTop:"1rem" }}>
+      <div style={{ display:"grid", gap:"1rem", marginTop:"1rem" }}>
         {(messages ?? []).map((message) => <article className="panel" key={message.id}>
           <p className="small muted"><strong>{message.author_type === "admin" ? "Assavendo" : message.author_name}</strong> · {new Date(message.created_at).toLocaleString("fr-FR")}</p>
           <p style={{ whiteSpace:"pre-wrap" }}>{message.body}</p>
@@ -49,7 +48,6 @@ export default async function TicketPage({ params }: { params: Promise<{ token: 
         <SupportReplyForm token={token} />
       </section> : null}
       <p className="muted small" style={{ marginTop:"1.2rem" }}>Ce lien personnel donne accès à votre ticket. Ne le partagez pas. Pour une nouvelle demande, <Link href="/aide#ticket">créez un nouveau ticket</Link>.</p>
-      <link rel="canonical" href={`${siteUrl}/aide/ticket/${token}`} />
     </div></div>
   );
 }
