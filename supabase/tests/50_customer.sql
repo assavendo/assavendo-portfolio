@@ -13,14 +13,14 @@ select public.add_customer_address('Maison 3','Awa Test','3 rue de Test',null,'7
 select public.add_customer_address('Maison 4','Awa Test','4 rue de Test',null,'75004','Paris','FR',null);
 select public.add_customer_address('Maison 5','Awa Test','5 rue de Test',null,'75005','Paris','FR',null);
 select pg_temp.assert((select count(*) = 5 from public.addresses where user_id = '55555555-5555-5555-5555-555555555551'), 'plafond de 5 adresses respecté');
-do $
+do $check$
 begin
   begin
     perform public.add_customer_address('Maison 6','Awa Test','6 rue de Test',null,'75006','Paris','FR',null);
     raise exception 'ÉCHEC : sixième adresse acceptée';
   exception when sqlstate 'P0001' then null;
   end;
-end $;
+end $check$;
 rollback;
 
 -- chaque client ne voit que ses propres données
