@@ -1,8 +1,10 @@
 "use server";
 import { z } from "zod";
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { allow } from "@/lib/rate-limit";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { hashReviewInvitationToken, REVIEW_INVITE_COOKIE } from "@/lib/review-invitations";
 import { visitorId } from "@/lib/visitor";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { clientIp } from "@/lib/rate-limit";
@@ -64,17 +66,65 @@ export async function addReview(_: FormState, form: FormData): Promise<FormState
   const db = supabaseAdmin();
   const { data: p } = await db.from("products").select("id, allow_reviews").eq("id", parsed.data.productId).eq("status", "published").maybeSingle();
   if (!p || !p.allow_reviews) return { ok: false, message: "Les avis sont fermés pour ce produit.", values: formValues(form) };
-  // « Achat vérifié » : posé UNIQUEMENT côté serveur, d'après une commande payée liée à ce visiteur.
-  // Les commandes multi-produits n'utilisent plus orders.product_id : on vérifie donc les lignes order_items.
-  const { data: paidOrders } = await db.from("orders").select("id").eq("visitor_id", vid).eq("status", "paid").order("paid_at", { ascending: false }).limit(100);
-  const orderIds = (paidOrders ?? []).map((order) => order.id);
-  let bought = null;
-  if (orderIds.length) {
-    const { data: boughtItem } = await db.from("order_items").select("id").eq("product_id", p.id).in("order_id", orderIds).limit(1).maybeSingle();
-    bought = boughtItem;
+
+  const cookieStore = await cookies();
+  const invitationToken = cookieStore.get(REVIEW_INVITE_COOKIE)?.value ?? "";
+  let invitationId: string | null = null;
+  let verifiedPurchase = false;
+
+  if (/^[a-f0-9]{64}$/i.test(invitationToken)) {
+    const { data: invitation } = await db.from("review_invitations")
+      .select("id,order_id,product_id,expires_at,sent_at,completed_at")
+      .eq("token_hash", hashReviewInvitationToken(invitationToken))
+      .maybeSingle();
+    if (
+      invitation &&
+      invitation.sent_at &&
+      !invitation.completed_at &&
+      invitation.product_id === p.id &&
+      (!invitation.expires_at || new Date(invitation.expires_at) > new Date())
+    ) {
+      const { data: invitedOrder } = await db.from("orders").select("id,status").eq("id", invitation.order_id).maybeSingle();
+      if (invitedOrder?.status === "paid") {
+        invitationId = invitation.id;
+        verifiedPurchase = true;
+      }
+    }
   }
-  const { error } = await db.from("product_reviews").insert({ product_id: p.id, visitor_id: vid, verified_purchase: Boolean(bought), author_name: parsed.data.name, rating: parsed.data.rating, body: parsed.data.body, status: "pending" });
-  if (error?.code === "23505") return { ok: false, message: "Vous avez déjà donné votre avis sur ce produit.", values: formValues(form) };
+
+  if (!verifiedPurchase) {
+    const { data: paidOrders } = await db.from("orders").select("id").eq("visitor_id", vid).eq("status", "paid").order("paid_at", { ascending: false }).limit(100);
+    const orderIds = (paidOrders ?? []).map((order) => order.id);
+    if (orderIds.length) {
+      const { data: boughtItem } = await db.from("order_items").select("id").eq("product_id", p.id).in("order_id", orderIds).limit(1).maybeSingle();
+      verifiedPurchase = Boolean(boughtItem);
+    }
+  }
+
+  const { error } = await db.from("product_reviews").insert({
+    product_id: p.id,
+    visitor_id: vid,
+    verified_purchase: verifiedPurchase,
+    author_name: parsed.data.name,
+    rating: parsed.data.rating,
+    body: parsed.data.body,
+    status: "pending",
+  });
+  if (error?.code === "23505") {
+    if (invitationId) await db.from("review_invitations").update({ completed_at: new Date().toISOString(), processing_at: null }).eq("id", invitationId);
+    cookieStore.delete(REVIEW_INVITE_COOKIE);
+    return { ok: false, message: "Vous avez déjà donné votre avis sur ce produit.", values: formValues(form) };
+  }
   if (error) return { ok: false, message: "Votre avis n'a pas pu être enregistré.", values: formValues(form) };
-  return { ok: true, message: "Merci, votre avis sera publié après vérification." };
+
+  if (invitationId) {
+    const { error: invitationError } = await db.from("review_invitations")
+      .update({ completed_at: new Date().toISOString(), processing_at: null, last_error: null })
+      .eq("id", invitationId)
+      .is("completed_at", null);
+    if (invitationError) console.error("[reviews] invitation non clôturée", invitationId, invitationError.message);
+    cookieStore.delete(REVIEW_INVITE_COOKIE);
+  }
+
+  return { ok: true, message: verifiedPurchase ? "Merci, votre avis a bien été enregistré. Votre achat sera signalé comme vérifié après modération." : "Merci, votre avis sera publié après vérification." };
 }
