@@ -61,4 +61,11 @@ select pg_temp.assert(
   'agents spécialisés verrouillés par défaut'
 );
 
-delete from public.ai_audit_logs where actor_id='test' and action='test_append_only';
+do $check$
+begin
+  begin
+    delete from public.ai_audit_logs where actor_id='test' and action='test_append_only';
+    raise exception 'ÉCHEC : audit IA supprimable';
+  exception when sqlstate 'P0001' then null;
+  end;
+end $check$;
