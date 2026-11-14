@@ -1,29 +1,47 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getPublishedHelpArticles } from "@/lib/help";
+import { SupportTicketForm } from "@/components/SupportTicketForm";
 
-export const metadata: Metadata = { title: "Aide", description: "Commande, livraison, téléchargement, retour et paiement : les réponses essentielles.", alternates: { canonical: "/aide" } };
+export const metadata: Metadata = { title: "Centre d'aide", description: "Base de connaissances, suivi de commande et support Assavendo.", alternates: { canonical: "/aide" } };
+export const dynamic = "force-dynamic";
 
-const topics: { q: string; a: React.ReactNode }[] = [
-  { q: "Comment suis-je livré ?", a: <>Chaque fiche produit indique le délai et les frais de livraison avant le paiement. Pour un téléchargement, un lien sécurisé est envoyé par e-mail dès que le paiement est confirmé ; il a une durée et un nombre d&apos;usages limités.</> },
-  { q: "Je n'ai pas reçu mon e-mail de téléchargement", a: <>Vérifiez vos courriers indésirables, puis écrivez-nous depuis le <Link href="/contact?sujet=Probl%C3%A8me%20de%20commande">formulaire de contact</Link> en indiquant l&apos;adresse utilisée pour la commande : nous renvoyons le lien après vérification.</> },
-  { q: "Puis-je retourner un produit ?", a: <>Oui, dans les conditions prévues par la loi et par nos <Link href="/conditions-de-vente">conditions de vente</Link> : 14 jours pour se rétracter pour un achat à distance, sauf exceptions légales (par exemple un contenu numérique dont le téléchargement a commencé avec votre accord).</> },
-  { q: "Comment le paiement est-il sécurisé ?", a: <>Le paiement est traité par Stripe sur une page sécurisée. Assavendo ne voit ni ne conserve votre numéro de carte.</> },
-  { q: "Quel est le prix final ?", a: <>Les prix sont affichés toutes taxes comprises. Les frais de livraison éventuels sont indiqués avant la validation du paiement.</> },
-  { q: "Mes données personnelles", a: <>Voir la <Link href="/confidentialite">politique de confidentialité</Link> : finalités, durées de conservation et droits d&apos;accès, de rectification et de suppression.</> },
-];
+export default async function Aide({ searchParams }: { searchParams: Promise<{ recherche?: string }> }) {
+  const { recherche } = await searchParams;
+  const articles = await getPublishedHelpArticles();
+  const query = String(recherche ?? "").trim().toLocaleLowerCase("fr-FR");
+  const filtered = query ? articles.filter((a) => [a.title, a.summary, a.category, a.content].join(" ").toLocaleLowerCase("fr-FR").includes(query)) : articles;
+  const groups = filtered.reduce<Record<string, typeof articles>>((acc, article) => {
+    (acc[article.category] ||= []).push(article);
+    return acc;
+  }, {});
 
-export default function Aide() {
   return (
-    <div className="section"><div className="wrap" style={{ maxWidth: "52rem" }}>
-      <h1 style={{ fontSize: "clamp(2rem,4vw,3rem)" }}>Aide</h1>
-      <p className="muted">Les réponses essentielles sur la commande, la livraison, le retour et le paiement.</p>
-      <div className="faq" style={{ marginTop: "1.6rem" }}>
-        {topics.map((t) => <details key={t.q}><summary>{t.q}</summary><p>{t.a}</p></details>)}
-      </div>
-      <div className="cta-band" style={{ marginTop: "2.5rem" }}>
-        <div><h2>Une question sans réponse ?</h2><p>Écrivez-nous : nous répondons personnellement.</p></div>
-        <Link className="btn btn-signal btn-lg" href="/contact">Contacter Assavendo</Link>
-      </div>
+    <div className="section"><div className="wrap" style={{ maxWidth: 1040 }}>
+      <h1 style={{ fontSize:"clamp(2rem,4vw,3rem)" }}>Centre d'aide</h1>
+      <p className="muted">Base de connaissances, réponses pratiques et support sécurisé. Vous pouvez consulter un article ou ouvrir un ticket sans mot de passe.</p>
+      <form className="panel" method="get" style={{ display:"flex", gap:".6rem", flexWrap:"wrap", alignItems:"end", marginTop:"1.2rem" }}>
+        <label className="field" style={{ flex:"1 1 24rem" }}>Rechercher<input className="input" name="recherche" defaultValue={recherche ?? ""} placeholder="commande, paiement, livraison…" /></label>
+        <button className="btn btn-ghost">Rechercher</button>
+        {query ? <Link className="btn btn-ghost" href="/aide">Effacer</Link> : null}
+      </form>
+      {!filtered.length ? <p className="panel">Aucun article ne correspond à votre recherche. <a href="#ticket">Ouvrir un ticket</a>.</p> : null}
+      {Object.entries(groups).map(([category, items]) => <section key={category} style={{ marginTop:"1.8rem" }}>
+        <h2 style={{ fontSize:"1.35rem" }}>{category}</h2>
+        <div style={{ display:"grid", gap:".8rem", gridTemplateColumns:"repeat(auto-fit,minmax(270px,1fr))" }}>
+          {items.map((article) => <article className="panel" key={article.id}>
+            <span className="eyebrow">{article.category}</span>
+            <h3 style={{ margin:".35rem 0" }}><Link href={`/aide/${article.slug}`}>{article.title}</Link></h3>
+            <p className="muted">{article.summary}</p>
+            <Link href={`/aide/${article.slug}`}>Lire la réponse →</Link>
+          </article>)}
+        </div>
+      </section>)}
+      <section id="ticket" className="panel" style={{ marginTop:"2.5rem" }}>
+        <h2 style={{ fontSize:"1.35rem" }}>Ouvrir un ticket</h2>
+        <p className="muted">Votre ticket est protégé par un jeton aléatoire personnel, haché côté serveur. Pour une demande concernant une commande, indiquez son numéro si vous l'avez.</p>
+        <SupportTicketForm />
+      </section>
     </div></div>
   );
 }
