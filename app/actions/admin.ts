@@ -356,8 +356,9 @@ export async function saveCollection(form: FormData) {
   const row = { slug, title: d.title, description: d.description || "", status: d.status, sort: d.sort };
 
   if (d.id) {
-    const { data: current, error: currentError } = await sb.from("collections").select("id").eq("id", d.id).maybeSingle();
+    const { data: current, error: currentError } = await sb.from("collections").select("id,slug").eq("id", d.id).maybeSingle();
     if (currentError || !current) return redirect("/admin/collections?erreur=" + encodeURIComponent("Collection introuvable."));
+    const oldSlug = current.slug as string;
     const { data: oldItems, error: oldItemsError } = await sb.from("collection_items").select("product_id,sort").eq("collection_id", d.id);
     if (oldItemsError) return redirect("/admin/collections?erreur=" + encodeURIComponent("Lecture des produits de la collection impossible."));
     const { error: updateError } = await sb.from("collections").update(row).eq("id", d.id);
@@ -367,12 +368,16 @@ export async function saveCollection(form: FormData) {
     if (productIds.length) {
       const { error: insertError } = await sb.from("collection_items").insert(productIds.map((productId, index) => ({ collection_id: d.id!, product_id: productId, sort: (index + 1) * 10 })));
       if (insertError) {
-        await sb.from("collection_items").insert((oldItems ?? []).map((item) => ({ collection_id: d.id!, product_id: item.product_id, sort: item.sort })));
-        return redirect("/admin/collections?erreur=" + encodeURIComponent("La collection a été modifiée, mais ses produits n'ont pas pu être enregistrés ; l'ancienne sélection a été restaurée."));
+        const { error: restoreError } = await sb.from("collection_items").insert((oldItems ?? []).map((item) => ({ collection_id: d.id!, product_id: item.product_id, sort: item.sort })));
+        const message = restoreError
+          ? "La nouvelle sélection n'a pas pu être enregistrée et l'ancienne sélection n'a pas pu être restaurée. Vérifiez la collection avant publication."
+          : "La collection a été modifiée, mais ses produits n'ont pas pu être enregistrés ; l'ancienne sélection a été restaurée.";
+        return redirect("/admin/collections?erreur=" + encodeURIComponent(message));
       }
     }
     revalidateTag("collections");
     revalidatePath("/collections");
+    revalidatePath("/collections/" + oldSlug);
     revalidatePath("/collections/" + slug);
     revalidatePath("/admin/collections");
     return redirect("/admin/collections?ok=" + encodeURIComponent("Collection enregistrée."));
@@ -396,10 +401,13 @@ export async function saveCollection(form: FormData) {
 export async function deleteCollection(form: FormData) {
   const { sb } = await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
+  const { data: current, error: currentError } = await sb.from("collections").select("slug").eq("id", id).maybeSingle();
+  if (currentError || !current) return redirect("/admin/collections?erreur=" + encodeURIComponent("Collection introuvable."));
   const { error } = await sb.from("collections").delete().eq("id", id);
   if (error) return redirect("/admin/collections?erreur=" + encodeURIComponent("Suppression impossible : " + error.message));
   revalidateTag("collections");
   revalidatePath("/collections");
+  revalidatePath("/collections/" + current.slug);
   revalidatePath("/admin/collections");
   return redirect("/admin/collections?ok=" + encodeURIComponent("Collection supprimée."));
 }
