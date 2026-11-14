@@ -1,7 +1,6 @@
 "use client";
 import { useActionState } from "react";
 import { replySupportTicket } from "@/app/actions/support";
-import type { FormState } from "@/app/actions/contact";
 import { Turnstile } from "./Turnstile";
 
 export function SupportReplyForm({ token }: { token: string }) {
