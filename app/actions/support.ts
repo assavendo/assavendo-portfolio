@@ -1,6 +1,6 @@
 "use server";
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -11,12 +11,12 @@ import { esc, sendEmail, isEmailConfigured } from "@/lib/email";
 import { siteUrl } from "@/lib/env";
 import { requireAdmin } from "@/lib/admin";
 import { slugify } from "@/lib/slug";
+import { hashSupportToken } from "@/lib/support";
 import type { FormState } from "./contact";
 
-const TOKEN_COOKIE_LENGTH = 64;
-export const hashSupportToken = (token: string) => createHash("sha256").update(token, "utf8").digest("hex");
 const makeSupportToken = () => randomBytes(32).toString("hex");
 const ticketUrl = (token: string) => `${siteUrl}/aide/ticket/${token}`;
+const valuesOf = (form: FormData) => Object.fromEntries([...form.entries()].filter(([key]) => key !== "cf-turnstile-response" && key !== "website")) as Record<string, string>;
 
 const ticketSchema = z.object({
   name: z.string().trim().min(2, "Indiquez votre nom.").max(80),
@@ -31,10 +31,11 @@ const ticketSchema = z.object({
 export async function createSupportTicket(_: FormState, form: FormData): Promise<FormState> {
   if (String(form.get("website") ?? "") !== "") return { ok: true, message: "Merci, votre demande a bien été enregistrée." };
   const parsed = ticketSchema.safeParse(Object.fromEntries(form));
-  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Vérifiez le formulaire.", values: Object.fromEntries(form) as Record<string, string> };
+  const values = valuesOf(form);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Vérifiez le formulaire.", values };
   const ip = await clientIp();
-  if (!(await allow("support-ticket", 3, 3600))) return { ok: false, message: "Trop de tickets envoyés récemment. Réessayez plus tard.", values: Object.fromEntries(form) as Record<string, string> };
-  if (!(await verifyTurnstile(String(form.get("cf-turnstile-response") ?? ""), ip))) return { ok: false, message: "La vérification anti-robot a échoué.", values: Object.fromEntries(form) as Record<string, string> };
+  if (!(await allow("support-ticket", 3, 3600))) return { ok: false, message: "Trop de tickets envoyés récemment. Réessayez plus tard.", values };
+  if (!(await verifyTurnstile(String(form.get("cf-turnstile-response") ?? ""), ip))) return { ok: false, message: "La vérification anti-robot a échoué.", values };
 
   const email = parsed.data.email.toLowerCase();
   const db = supabaseAdmin();
@@ -63,7 +64,7 @@ export async function createSupportTicket(_: FormState, form: FormData): Promise
     priority: "normal",
     last_message_at: new Date().toISOString(),
   }).select("id,ticket_number").single();
-  if (error || !ticket) return { ok: false, message: "Le ticket n'a pas pu être enregistré. Réessayez dans un instant.", values: Object.fromEntries(form) as Record<string, string> };
+  if (error || !ticket) return { ok: false, message: "Le ticket n'a pas pu être enregistré. Réessayez dans un instant.", values };
 
   const { error: messageError } = await db.from("support_messages").insert({
     ticket_id: ticket.id,
@@ -73,7 +74,7 @@ export async function createSupportTicket(_: FormState, form: FormData): Promise
   });
   if (messageError) {
     await db.from("support_tickets").delete().eq("id", ticket.id);
-    return { ok: false, message: "Le message n'a pas pu être enregistré. Réessayez dans un instant.", values: Object.fromEntries(form) as Record<string, string> };
+    return { ok: false, message: "Le message n'a pas pu être enregistré. Réessayez dans un instant.", values };
   }
 
   const url = ticketUrl(token);
@@ -116,8 +117,10 @@ export async function replySupportTicket(_: FormState, form: FormData): Promise<
   if (!(await verifyTurnstile(String(form.get("cf-turnstile-response") ?? ""), ip))) return { ok: false, message: "La vérification anti-robot a échoué." };
 
   const db = supabaseAdmin();
-  const hash = hashSupportToken(parsed.data.token);
-  const { data: ticket } = await db.from("support_tickets").select("id,ticket_number,name,email,subject,status").eq("access_token_hash", hash).maybeSingle();
+  const { data: ticket } = await db.from("support_tickets")
+    .select("id,ticket_number,name,email,subject,status")
+    .eq("access_token_hash", hashSupportToken(parsed.data.token))
+    .maybeSingle();
   if (!ticket) return { ok: false, message: "Ticket introuvable ou lien invalide." };
   if (ticket.status === "closed") return { ok: false, message: "Ce ticket est fermé. Créez une nouvelle demande pour poursuivre." };
 
@@ -193,7 +196,11 @@ export async function deleteHelpArticle(form: FormData) {
   return redirect("/admin/aide?ok=Article%20supprimé.");
 }
 
-const adminReplySchema = z.object({ ticket_id: z.string().uuid(), body: z.string().trim().min(2).max(5000), status: z.enum(["pending_customer","resolved","closed"]) });
+const adminReplySchema = z.object({
+  ticket_id: z.string().uuid(),
+  body: z.string().trim().min(2).max(5000),
+  status: z.enum(["pending_customer","resolved","closed"]),
+});
 
 export async function replySupportTicketAsAdmin(form: FormData) {
   const { user, sb } = await requireAdmin();
@@ -209,25 +216,36 @@ export async function replySupportTicketAsAdmin(form: FormData) {
     body: parsed.data.body,
   });
   if (messageError) return redirect("/admin/support?erreur=Réponse%20non%20enregistrée.");
-  const { error: ticketError } = await sb.from("support_tickets").update({ status: parsed.data.status, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", ticket.id);
+  const { error: ticketError } = await sb.from("support_tickets").update({
+    status: parsed.data.status,
+    last_message_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", ticket.id);
   if (ticketError) return redirect("/admin/support?erreur=Statut%20non%20enregistré.");
-  const { error: mailError } = await sendEmail({
+  await sendEmail({
     to: ticket.email,
     subject: `Réponse à votre ticket ${ticket.ticket_number} — Assavendo`,
-    html: `<p>Bonjour ${esc(ticket.name)},</p><p>Assavendo a répondu à votre ticket <strong>${esc(ticket.ticket_number)}</strong>.</p><p style="white-space:pre-wrap">${esc(parsed.data.body)}</p><p><a href="${esc(siteUrl + "/aide/ticket/" + form.get("token"))}">Voir le ticket et répondre</a></p>`,
-  }) ? { error: null } : { error: new Error("E-mail non envoyé") };
-  if (mailError && process.env.RESEND_API_KEY) console.error("[support] e-mail admin non envoyé", mailError.error);
+    html: `<p>Bonjour ${esc(ticket.name)},</p><p>Assavendo a répondu à votre ticket <strong>${esc(ticket.ticket_number)}</strong>.</p><p style="white-space:pre-wrap">${esc(parsed.data.body)}</p><p>Utilisez votre lien personnel de suivi reçu lors de la création du ticket pour consulter toute la conversation et répondre.</p><p>Assavendo</p>`,
+  });
   revalidatePath("/admin/support");
   return redirect("/admin/support?ok=Réponse%20envoyée.");
 }
 
-const ticketUpdateSchema = z.object({ id: z.string().uuid(), status: z.enum(["open","pending_customer","pending_assavendo","resolved","closed"]), priority: z.enum(["low","normal","high","urgent"]) });
+const ticketUpdateSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["open","pending_customer","pending_assavendo","resolved","closed"]),
+  priority: z.enum(["low","normal","high","urgent"]),
+});
 
 export async function updateSupportTicket(form: FormData) {
   const { sb } = await requireAdmin();
   const parsed = ticketUpdateSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) return redirect("/admin/support?erreur=Statut%20ou%20priorité%20invalide.");
-  const { error } = await sb.from("support_tickets").update({ status: parsed.data.status, priority: parsed.data.priority, updated_at: new Date().toISOString() }).eq("id", parsed.data.id);
+  const { error } = await sb.from("support_tickets").update({
+    status: parsed.data.status,
+    priority: parsed.data.priority,
+    updated_at: new Date().toISOString(),
+  }).eq("id", parsed.data.id);
   if (error) return redirect("/admin/support?erreur=Mise%20à%20jour%20impossible.");
   revalidatePath("/admin/support");
   return redirect("/admin/support?ok=Ticket%20mis%20à%20jour.");
