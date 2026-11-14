@@ -51,10 +51,31 @@ do $$ begin
   exception when unique_violation then null; end;
 end $$;
 
--- RLS : l'anonyme lit les catégories et variantes d'un produit publié, jamais le journal de stock
+-- collections éditoriales : intégrité, ordre et RLS de lecture publique
+insert into public.collections (id, slug, title, description, status, sort)
+values ('44444444-4444-4444-4444-444444444444', 'collection-test', 'Collection de test', 'Sélection de démonstration.', 'published', 10);
+insert into public.collection_items (collection_id, product_id, sort)
+values ('44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 10);
+do $ begin
+  begin
+    insert into public.collection_items (collection_id, product_id, sort)
+    values ('44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 20);
+    raise exception 'ÉCHEC : doublon de produit dans une collection accepté';
+  exception when unique_violation then null; end;
+end $;
+insert into public.collections (id, slug, title, status, sort)
+values ('55555555-5555-5555-5555-555555555555', 'collection-brouillon', 'Collection brouillon', 'draft', 20);
+insert into public.collection_items (collection_id, product_id, sort)
+values ('55555555-5555-5555-5555-555555555555', '33333333-3333-3333-3333-333333333333', 10);
+
+-- RLS : l'anonyme lit les catégories, variantes et collections publiées, jamais les brouillons ni le journal de stock
 set role anon;
 select pg_temp.assert((select count(*) from public.categories) > 100, 'catégories lisibles (anonyme)');
 select pg_temp.assert((select count(*) from public.product_variants) = 1, 'variantes d''un produit publié lisibles');
+select pg_temp.assert((select count(*) from public.collections where slug = 'collection-test') = 1, 'collection publiée lisible (anonyme)');
+select pg_temp.assert((select count(*) from public.collection_items where collection_id = '44444444-4444-4444-4444-444444444444') = 1, 'élément de collection publiée lisible (anonyme)');
+select pg_temp.assert((select count(*) from public.collections where slug = 'collection-brouillon') = 0, 'collection brouillon invisible (anonyme)');
+select pg_temp.assert((select count(*) from public.collection_items where collection_id = '55555555-5555-5555-5555-555555555555') = 0, 'élément de collection brouillon invisible (anonyme)');
 select pg_temp.assert((select count(*) from public.products where slug = 'creme-brouillon') = 0, 'brouillon invisible (anonyme)');
 do $$ begin
   begin perform 1 from public.stock_movements; raise exception 'ÉCHEC : journal de stock lisible';
