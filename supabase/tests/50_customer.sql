@@ -60,3 +60,27 @@ end $$;
 update public.return_requests set status = 'refused';
 select pg_temp.assert((select count(*) = 1 from (select 1 from public.return_requests) x), 'demande refusée conservée');
 insert into public.return_requests (order_id, order_item_id, email, reason) select order_id, id, 'pay@exemple.fr', 'other' from public.order_items where title = 'Casque de test' order by id limit 1;
+
+-- campagne post-achat : invitation créée au paiement et activée après livraison physique
+begin;
+insert into public.orders (
+  id, product_id, stripe_session_id, customer_email, amount_cents, currency, status, visitor_id
+) values (
+  '66666666-6666-6666-6666-666666666661', null, 'review-campaign-test', 'review@example.com', 1999, 'eur', 'pending', 'review-visitor-123456'
+);
+insert into public.order_items (
+  order_id, product_id, title, kind, unit_price_cents, qty
+) values (
+  '66666666-6666-6666-6666-666666666661',
+  (select id from public.products where slug = 'casque-test' limit 1),
+  'Casque de test',
+  'physical',
+  1999,
+  1
+);
+update public.orders set status = 'paid', paid_at = now() where id = '66666666-6666-6666-6666-666666666661';
+select pg_temp.assert((select count(*) = 1 from public.review_invitations where order_id = '66666666-6666-6666-6666-666666666661'), 'invitation avis créée au paiement');
+select pg_temp.assert((select eligible_at is null from public.review_invitations where order_id = '66666666-6666-6666-6666-666666666661'), 'invitation physique en attente de livraison');
+update public.orders set fulfilment = 'delivered', delivered_at = now() where id = '66666666-6666-6666-6666-666666666661';
+select pg_temp.assert((select eligible_at is not null from public.review_invitations where order_id = '66666666-6666-6666-6666-666666666661'), 'invitation physique activée après livraison');
+rollback;
