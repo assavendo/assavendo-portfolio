@@ -27,8 +27,8 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Téléchargements par fichier (limités, expirants, révocables) | ✅ | |
 | Retours : demande client, décision admin, remise en stock journalisée | ✅ | Remboursement effectué dans Stripe |
 | Remboursement automatique depuis l'admin | ⛔ | Volontairement dans Stripe (traçabilité) |
-| TVA / Stripe Tax | ❓ | Prix TTC ; Stripe Tax activable via `STRIPE_TAX_ENABLED` après décision du régime de TVA |
-| Frais de port par zone / transporteurs | ❓ | Frais fixes par produit pour l'instant |
+| TVA / Stripe Tax | ❓ | Support technique déjà présent (`automatic_tax` via `STRIPE_TAX_ENABLED`, prix Stripe en TTC). Activation définitive impossible sans décision sur le régime de TVA et les immatriculations Stripe correspondantes. |
+| Frais de port par zone / transporteurs | ❓ | Le paiement collecte l'adresse et n'autorise que les marchés approuvés ; le calcul actuel reste basé sur `shipping_cents` du produit. Les zones, transporteurs et tarifs doivent être définis par le propriétaire avant d'être codés comme règles de vente. |
 
 ## Compte client, support, conformité
 | Compte par lien magique (sans mot de passe) | ✅ | Nécessite l'envoi d'e-mails Auth configuré (voir README) |
@@ -49,8 +49,8 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Rôles par clé et par agent | ✅ | général, support, recherche, catalogue |
 | Réponses automatiques aux clients | ✅ | Brouillon à valider par défaut ; mode auto limité par des contrôles (pas de lien externe, e-mail, remboursement, remise) |
 | Recherche de produits, ajout sur ordre | ✅ | Note de recherche en lecture seule ; fiche proposée puis créée en brouillon seulement après approbation |
-| Import depuis une page fournisseur publique | ✅ | Flux serveur opérationnel : HTTPS, robots.txt, anti-SSRF, taille/timeout/redirections bornés, extraction JSON-LD/OpenGraph, provenance, contrôle des droits, proposition humaine et reprise idempotente. Tests unitaires et de sécurité inclus ; aucune publication ni commande automatique. |
-| Image produit premium via IA | ✅ | Endpoint OpenAI Image Edits avec clé dédiée gouvernée, quotas, réservation anti-concurrence, source HTTPS vérifiée, sortie WebP stockée dans `media`, reprise idempotente et validation humaine obligatoire. |
+| Import depuis une page fournisseur publique | 🟡 | Flux serveur terminé et testé : HTTPS, robots.txt, anti-SSRF, limites réseau, extraction JSON-LD/OpenGraph, provenance, droits, proposition humaine et reprise idempotente. L’activation réelle reste conditionnée à une clé IA fournisseur active et à un test d’une source fournisseur autorisée. |
+| Image produit premium via IA | 🟡 | Endpoint OpenAI Image Edits terminé et contrôlé (quota, réservation, source HTTPS, WebP, reprise idempotente, validation humaine). Aucune clé OpenAI active n’est actuellement configurée en production : le premier appel réel reste à effectuer après configuration de la clé dans le Centre IA. |
 | Synchronisation fournisseur, stock et transmission de commande | ⛔ | Non implémenté; aucun achat ou envoi de commande automatique. Nécessite un connecteur autorisé et des choix opérationnels du propriétaire. |
 | Autorisations et limites | ✅ | Interrupteur général (IA coupées par défaut), plafond d'appels/jour, liste blanche d'actions appliquée par le code, journal |
 | Manus (API par tâches asynchrones) | ✅ | Adaptateur v2 dédié : santé, création de tâches asynchrones, détail, messages, envoi de message et arrêt ; credentials désactivés par défaut jusqu'au test d'un compte. |
