@@ -28,22 +28,16 @@ alter table public.markets
   add column if not exists updated_at timestamptz not null default now(),
   add column if not exists updated_by uuid references auth.users(id) on delete set null;
 
-do $ begin
-  alter table public.markets add constraint markets_tax_status_ck check (tax_status in ('pending','approved','rejected','legacy'));
-exception when duplicate_object then null; end $;
-do $ begin
-  alter table public.markets add constraint markets_shipping_status_ck check (shipping_status in ('pending','approved','rejected','legacy'));
-exception when duplicate_object then null; end $;
-do $ begin
-  alter table public.markets add constraint markets_compliance_status_ck check (compliance_status in ('pending','approved','rejected','legacy'));
-exception when duplicate_object then null; end $;
-do $ begin
-  alter table public.markets add constraint markets_pricing_status_ck check (pricing_status in ('pending','approved','rejected','legacy'));
-exception when duplicate_object then null; end $;
-do $ begin
-  alter table public.markets add constraint markets_payment_status_ck check (payment_status in ('pending','approved','rejected','legacy'));
-exception when duplicate_object then null; end $;
-
+alter table public.markets drop constraint if exists markets_tax_status_ck;
+alter table public.markets add constraint markets_tax_status_ck check (tax_status in ('pending','approved','rejected','legacy'));
+alter table public.markets drop constraint if exists markets_shipping_status_ck;
+alter table public.markets add constraint markets_shipping_status_ck check (shipping_status in ('pending','approved','rejected','legacy'));
+alter table public.markets drop constraint if exists markets_compliance_status_ck;
+alter table public.markets add constraint markets_compliance_status_ck check (compliance_status in ('pending','approved','rejected','legacy'));
+alter table public.markets drop constraint if exists markets_pricing_status_ck;
+alter table public.markets add constraint markets_pricing_status_ck check (pricing_status in ('pending','approved','rejected','legacy'));
+alter table public.markets drop constraint if exists markets_payment_status_ck;
+alter table public.markets add constraint markets_payment_status_ck check (payment_status in ('pending','approved','rejected','legacy'));
 alter table public.markets enable row level security;
 revoke all on public.markets from anon, authenticated;
 
