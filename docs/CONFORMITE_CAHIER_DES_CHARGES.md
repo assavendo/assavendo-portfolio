@@ -34,7 +34,7 @@ Légende : ✅ fait et testé · 🟡 partiel (ce qui manque est précisé) · �
 | Compte par lien magique (sans mot de passe) | ✅ | Nécessite l'envoi d'e-mails Auth configuré (voir README) |
 | Favoris, adresses, historique, export et suppression des données | ✅ | RLS testée |
 | Centre d'aide | 🟡 | Page d'aide statique ; pas de tickets ni de base de connaissances |
-| Avis vérifiés d'acheteurs | 🟡 | Existant conservé ; pas de campagne d'avis post-achat |
+| Avis vérifiés d'acheteurs | ✅ | Preuve d'achat serveur pour commandes historiques et multi-produits, campagne post-achat dédiée avec délai après achat/livraison, jeton d'invitation à usage contrôlé, envoi idempotent et cron Vercel. |
 
 ## Hors périmètre de ce site (autres projets ou décisions)
 ⛔ Medusa / moteur de commerce externe · OpenSearch · Temporal · marketplace de vendeurs tiers et paiements de commissions · synchronisation automatique du stock/fulfillment fournisseur · multi-devises et multi-langues (marché par défaut : France, EUR, français ; registre `markets` prêt). Import fournisseur assisté par IA : 🟡 voir la section Centre IA; la décision reste humaine.
