@@ -98,6 +98,16 @@ export async function addReview(_: FormState, form: FormData): Promise<FormState
     if (orderIds.length) {
       const { data: boughtItem } = await db.from("order_items").select("id").eq("product_id", p.id).in("order_id", orderIds).limit(1).maybeSingle();
       verifiedPurchase = Boolean(boughtItem);
+      if (!verifiedPurchase) {
+        const { data: legacyOrder } = await db.from("orders")
+          .select("id")
+          .eq("product_id", p.id)
+          .eq("status", "paid")
+          .eq("visitor_id", vid)
+          .limit(1)
+          .maybeSingle();
+        verifiedPurchase = Boolean(legacyOrder);
+      }
     }
   }
 
