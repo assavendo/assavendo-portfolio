@@ -76,13 +76,11 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
     return { ok: false, message: "Le paiement n'est pas encore activé sur ce site." };
   }
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  const taxOn = process.env.STRIPE_TAX_ENABLED === "true";
   const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = order.items.filter((i) => i.unit_price_cents > 0).map((i) => ({
     quantity: i.qty,
     price_data: { currency: "eur", unit_amount: i.unit_price_cents, tax_behavior: "inclusive", product_data: { name: i.variant_label ? `${i.title} (${i.variant_label})` : i.title, ...(i.image?.startsWith("https://") ? { images: [i.image] } : {}) } },
   }));
   if (order.shipping_cents > 0) line_items.push({ quantity: 1, price_data: { currency: "eur", unit_amount: order.shipping_cents, tax_behavior: "inclusive", product_data: { name: "Livraison" } } });
-  let url: string | null = null;
   let allowedCountries: string[] = [];
   if (order.has_physical) {
     try {
@@ -99,24 +97,32 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
       return { ok: false, message: "Aucun marché de livraison n'est actuellement ouvert pour les produits physiques.", values: keep() };
     }
   }
-  try {
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment", customer_email: email, client_reference_id: order.order_id, locale: "fr",
-      billing_address_collection: "required",
-      ...(order.has_physical ? { shipping_address_collection: { allowed_countries: allowedCountries } } : {}),
-      invoice_creation: { enabled: true },
-      automatic_tax: { enabled: taxOn },
-      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,   // la réservation de stock dure 35 minutes : la session expire avant
-      line_items,
-      metadata: { orderId: order.order_id },
-      payment_intent_data: { metadata: { orderId: order.order_id } },
-      success_url: `${siteUrl}/paiement/retour?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/commande?paiement=annule`,
-    }, { idempotencyKey: `checkout-${order.order_id}` });
-    url = session.url;
-    if (!url) throw new Error("URL de paiement absente");
-    const { error: ue } = await db.from("orders").update({ stripe_session_id: session.id }).eq("id", order.order_id);
-    if (ue) console.error("[checkout] session non liée (le webhook retrouvera la commande par son identifiant)", order.order_id, ue.message);
-  } catch (e) { return cancel(e instanceof Error ? e.message : String(e)); }
-  redirect(url);
+  const sessionResult = await (async () => {
+    try {
+      const session = await stripe.checkout.sessions.create({
+        ui_mode: "hosted_page",
+        mode: "payment",
+        billing_address_collection: "auto",
+        phone_number_collection: { enabled: false },
+        automatic_tax: { enabled: false },
+        allow_promotion_codes: false,
+        submit_type: "auto",
+        shipping_address_collection: { allowed_countries: ["CA","MX","US","AG","AI","AW","BB","BL","BM","BQ","BS","BZ","CR","CW","DM","DO","GD","GL","GP","GT","HN","HT","JM","KN","KY","LC","MF","MQ","MS","NI","PA","PM","PR","SV","SX","TC","TT","VC","VG","AR","BO","BR","BV","CL","CO","EC","FK","GF","GS","GY","PE","PY","SR","UY","VE","AD","AL","AT","AX","BA","BE","BG","BY","CH","CZ","DE","DK","EE","ES","FI","FO","FR","GB","GG","GI","GR","HR","HU","IE","IM","IS","IT","JE","LI","LT","LU","LV","MC","MD","ME","MK","MT","NL","NO","PL","PT","RO","RS","RU","SE","SI","SJ","SK","SM","UA","VA","AO","BF","BI","BJ","BW","CD","CF","CG","CI","CM","CV","DJ","DZ","EG","ER","ET","GA","GH","GM","GN","GQ","GW","IO","KE","KM","LR","LS","LY","MA","MG","ML","MR","MU","MW","MZ","NA","NE","NG","RE","RW","SC","SH","SL","SN","SO","SS","ST","SZ","TD","TF","TG","TN","TZ","UG","YT","ZA","ZM","ZW","AE","AF","AM","AZ","BD","BH","BN","BT","CN","CY","GE","HK","ID","IL","IN","IQ","JO","JP","KG","KH","KR","KW","KZ","LA","LB","LK","MM","MN","MO","MV","MY","NP","OM","PH","PK","QA","SA","SG","TH","TJ","TL","TM","TR","TW","UZ","VN","YE","AU","CK","FJ","GU","KI","NC","NR","NU","NZ","PF","PG","PN","SB","TK","TO","TV","VU","WF","WS"] },
+        name_collection: { individual: { enabled: true } },
+        integration_identifier: "hosted_web_0002",
+        origin_context: "web",
+        line_items,
+        success_url: `${siteUrl}/paiement/retour?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${siteUrl}/commande?paiement=annule`,
+      }, { idempotencyKey: `checkout-${order.order_id}` });
+      return { session } as const;
+    } catch (error) {
+      return { error } as const;
+    }
+  })();
+  if ("error" in sessionResult) return cancel(sessionResult.error instanceof Error ? sessionResult.error.message : String(sessionResult.error));
+  if (!sessionResult.session.url) return cancel("URL de paiement absente");
+  const { error: ue } = await db.from("orders").update({ stripe_session_id: sessionResult.session.id }).eq("id", order.order_id);
+  if (ue) console.error("[checkout] session non liée (le webhook retrouvera la commande par son identifiant)", order.order_id, ue.message);
+  redirect(sessionResult.session.url);
 }
