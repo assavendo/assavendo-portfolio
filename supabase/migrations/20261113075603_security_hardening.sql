@@ -86,11 +86,6 @@ GRANT EXECUTE ON FUNCTION public.admin_renew_download(uuid, integer) TO authenti
 CREATE INDEX IF NOT EXISTS ai_runs_key_id_idx ON public.ai_runs (key_id);
 CREATE INDEX IF NOT EXISTS ai_tasks_agent_idx ON public.ai_tasks (agent);
 CREATE INDEX IF NOT EXISTS collection_items_product_id_idx ON public.collection_items (product_id);
-DO $ BEGIN
-  IF to_regclass('public.dropship_imports') IS NOT NULL THEN
-    CREATE INDEX IF NOT EXISTS dropship_imports_manus_key_id_idx ON public.dropship_imports (manus_key_id);
-  END IF;
-END $;
 CREATE INDEX IF NOT EXISTS favorites_product_id_idx ON public.favorites (product_id);
 CREATE INDEX IF NOT EXISTS markets_updated_by_idx ON public.markets (updated_by);
 CREATE INDEX IF NOT EXISTS order_items_variant_id_idx ON public.order_items (variant_id);
