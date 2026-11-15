@@ -27,7 +27,19 @@ export async function sendOrderEmail(db: Db, o: { order_id: string; download_tok
     ? `<p><a href="${siteUrl}/api/download/${o.download_token}">Télécharger votre fichier</a></p><p>Ce lien est personnel : ${ord?.download_max ?? 5} téléchargements maximum${until ? `, valable jusqu'au ${until}` : ""}. Conservez-le précieusement.</p>`
     : p?.kind === "physical" ? "<p>Nous préparons l'expédition et vous écrivons dès que le colis est parti.</p>"
     : "<p>Nous vous contactons très bientôt pour organiser la suite.</p>";
-  const ok = await sendEmail({ to: o.customer_email, subject: `Votre commande : ${title}`, html: `<p>Merci pour votre confiance.</p><p>Votre commande de <strong>${esc(title)}</strong> est confirmée.</p>${body}<p>Une question ? Répondez simplement à ce message.</p><p>Assavendo</p>` });
+  const replyTo = process.env.CONTACT_TO_EMAIL;
+  const text = d && o.download_token
+    ? `Merci pour votre confiance. Votre commande de ${title} est confirmée. Téléchargement : ${siteUrl}/api/download/${o.download_token}. Lien personnel, ${ord?.download_max ?? 5} téléchargements maximum${until ? `, valable jusqu'au ${until}` : ""}.`
+    : p?.kind === "physical"
+      ? `Merci pour votre confiance. Votre commande de ${title} est confirmée. Nous préparons l'expédition et vous écrirons dès que le colis sera parti.`
+      : `Merci pour votre confiance. Votre commande de ${title} est confirmée. Nous vous contacterons très bientôt pour organiser la suite.`;
+  const ok = await sendEmail({
+    to: o.customer_email,
+    subject: `Votre commande : ${title}`,
+    html: `<p>Merci pour votre confiance.</p><p>Votre commande de <strong>${esc(title)}</strong> est confirmée.</p>${body}<p>Une question ? Répondez simplement à ce message.</p><p>Assavendo</p>`,
+    text,
+    ...(replyTo ? { replyTo } : {}),
+  });
   if (!ok) { console.error("[orders] e-mail de confirmation en échec", o.order_id); return false; }
   const { error } = await db.from("orders").update({ email_sent_at: new Date().toISOString() }).eq("id", o.order_id);
   if (error) console.error("[orders] email_sent_at non enregistré", o.order_id, error.message);
@@ -61,7 +73,29 @@ ${downloads ? `<p>Vos fichiers :</p><ul>${downloads}</ul><p>Ces liens sont perso
 ${physical ? "<p>Nous préparons l'expédition et vous écrivons dès que le colis est parti, avec le suivi.</p>" : ""}
 <p>Suivre ma commande : <a href="${siteUrl}/commande/${o.access_token}">${siteUrl}/commande/${o.access_token}</a></p>
 <p>Une question ? Répondez simplement à ce message.</p><p>Assavendo</p>`;
-  const ok = await sendEmail({ to: o.customer_email, subject: `Votre commande ${o.order_number ?? ""}`.trim(), html });
+  const replyTo = process.env.CONTACT_TO_EMAIL;
+  const textItems = (items ?? []).map((i) => `- ${i.title}${i.variant_label ? ` (${i.variant_label})` : ""} × ${i.qty} : ${i.unit_price_cents ? eur(i.unit_price_cents * i.qty) : "Gratuit"}`).join("\n");
+  const textDownloads = (items ?? []).filter((i) => i.download_token).map((i) => `- Télécharger : ${i.title} — ${siteUrl}/api/download/${i.download_token}`).join("\n");
+  const text = `Merci pour votre confiance.
+
+Votre commande ${o.order_number ?? ""} est confirmée.
+
+${textItems}
+
+${o.shipping_cents ? `Livraison : ${eur(o.shipping_cents)}\\n` : ""}Total TTC : ${eur(o.amount_cents)}
+${textDownloads ? `\\nVos fichiers :\\n${textDownloads}\\n` : ""}${physical ? "\\nNous préparons l'expédition et vous écrirons dès que le colis sera parti.\\n" : ""}
+
+Suivre ma commande : ${siteUrl}/commande/${o.access_token}
+
+Une question ? Répondez à ce message.
+Assavendo`;
+  const ok = await sendEmail({
+    to: o.customer_email,
+    subject: `Votre commande ${o.order_number ?? ""}`.trim(),
+    html,
+    text,
+    ...(replyTo ? { replyTo } : {}),
+  });
   if (!ok) { console.error("[orders] e-mail de confirmation en échec", orderId); return false; }
   const { error } = await db.from("orders").update({ email_sent_at: new Date().toISOString() }).eq("id", orderId);
   if (error) console.error("[orders] email_sent_at non enregistré", orderId, error.message);
