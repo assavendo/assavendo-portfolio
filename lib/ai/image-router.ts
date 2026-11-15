@@ -4,6 +4,7 @@ import { candidates, classifyFailure, scrub, specificFirst, type KeyRow } from "
 import { manusCreateTask, manusListMessages, manusTaskDetail } from "./manus";
 
 export type GeneratedImage = {
+  ok: true;
   bytes: Buffer;
   contentType: "image/webp" | "image/png" | "image/jpeg";
   provider: string;
