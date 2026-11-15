@@ -82,8 +82,8 @@ Votre commande ${o.order_number ?? ""} est confirmée.
 
 ${textItems}
 
-${o.shipping_cents ? `Livraison : ${eur(o.shipping_cents)}\\n` : ""}Total TTC : ${eur(o.amount_cents)}
-${textDownloads ? `\\nVos fichiers :\\n${textDownloads}\\n` : ""}${physical ? "\\nNous préparons l'expédition et vous écrirons dès que le colis sera parti.\\n" : ""}
+${o.shipping_cents ? `Livraison : ${eur(o.shipping_cents)}\n` : ""}Total TTC : ${eur(o.amount_cents)}
+${textDownloads ? `\nVos fichiers :\n${textDownloads}\n` : ""}${physical ? "\nNous préparons l'expédition et vous écrirons dès que le colis sera parti.\n" : ""}
 
 Suivre ma commande : ${siteUrl}/commande/${o.access_token}
 
