@@ -188,7 +188,7 @@ export async function generatePremiumImage(input: Input): Promise<GeneratedImage
       continue;
     }
     const result = key.provider === "openai" ? await openAi(key, secret, input) : await openRouter(key, secret, input);
-    if (result.ok && result.bytes && result.contentType) {
+    if (result.ok) {
       const today = new Date().toISOString().slice(0, 10);
       await db.from("ai_keys").update({ used_day: today, used_today: (key.used_day === today ? key.used_today : 0) + 1, fail_count: 0, last_error: null, last_ok_at: new Date().toISOString(), cooldown_until: null }).eq("id", key.id);
       return { ok: true, bytes: result.bytes, contentType: result.contentType, provider: key.provider, model: key.model, keyId: key.id, keyLabel: key.label, attempts, requestId: result.requestId ?? null };
@@ -227,7 +227,7 @@ export async function generatePremiumImage(input: Input): Promise<GeneratedImage
       }
       const profile = key.agent_profile === "lite" || key.agent_profile === "max" ? key.agent_profile : "standard";
       const result = await manus(secret, profile, input);
-      if (result.ok && result.bytes && result.contentType) {
+      if (result.ok) {
         await db.from("manus_keys").update({
           used_day: today,
           used_today: (key.used_day === today ? Number(key.used_today) : 0) + 1,
