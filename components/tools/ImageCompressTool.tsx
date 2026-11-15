@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- Compression previews use browser Blob URLs. */
 "use client";
 import { useRef, useState } from "react";
 import { fmt } from "./shared";
