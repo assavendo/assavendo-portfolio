@@ -7,7 +7,7 @@ import { siteUrl } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { visitorId } from "@/lib/visitor";
 import { hashIp } from "@/lib/privacy";
-import { TERMS_VERSION } from "@/lib/legal";
+import { TERMS_VERSION, missing as missingLegal } from "@/lib/legal";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { firstRow, sendCartOrderEmail } from "@/lib/orders";
 import { readCart, writeCart } from "@/lib/cart";
@@ -71,6 +71,10 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
     await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
     return { ok: false, message: "Le paiement n'a pas pu être lancé. Aucun montant n'a été prélevé. Réessayez dans un instant.", values: keep() } as FormState;
   };
+  if (missingLegal.length) {
+    console.error("[checkout] informations légales manquantes", missingLegal.join(", "));
+    return { ok: false, message: "Les commandes ne sont pas encore ouvertes. Les informations légales du vendeur doivent être finalisées.", values: keep() };
+  }
   if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
     await db.rpc("release_order_stock", { p_order_id: order.order_id }); await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
     return { ok: false, message: "Le paiement n'est pas encore activé sur ce site." };
