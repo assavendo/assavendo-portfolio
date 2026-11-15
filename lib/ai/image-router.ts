@@ -15,14 +15,19 @@ export type GeneratedImage = {
 };
 
 type Input = { sourceUrl: string; prompt: string };
-type ProviderResult = {
-  ok: boolean;
-  status: number | null;
-  bytes?: Buffer;
-  contentType?: GeneratedImage["contentType"];
-  requestId?: string | null;
-  detail?: string;
-};
+type ProviderResult =
+  | {
+      ok: true;
+      status: number;
+      bytes: Buffer;
+      contentType: GeneratedImage["contentType"];
+      requestId?: string | null;
+    }
+  | {
+      ok: false;
+      status: number | null;
+      detail?: string;
+    };
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
