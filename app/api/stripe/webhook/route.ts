@@ -29,6 +29,16 @@ export async function POST(req: Request) {
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object as Stripe.Checkout.Session;
       if (s.payment_status === "paid") await fulfil(db, s, event.created);
+    } else if (event.type === "checkout.session.async_payment_failed") {
+      const s = event.data.object as Stripe.Checkout.Session;
+      const id = s.metadata?.orderId;
+      const q = db.from("orders").update({ status: "canceled" }).eq("status", "pending");
+      const { data: canceled, error } = await (id && UUID.test(id) ? q.eq("id", id) : q.eq("stripe_session_id", s.id)).select("id");
+      if (error) throw error;
+      for (const o of canceled ?? []) {
+        const { error: re } = await db.rpc("release_order_stock", { p_order_id: o.id });
+        if (re) throw re;
+      }
     } else if (event.type === "checkout.session.expired") {
       const s = event.data.object as Stripe.Checkout.Session;
       const id = s.metadata?.orderId;
