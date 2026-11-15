@@ -101,11 +101,21 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
   }
   try {
     const session = await stripe.checkout.sessions.create({
-      mode: "payment", customer_email: email, client_reference_id: order.order_id, locale: "fr",
-      billing_address_collection: "required",
+      ui_mode: "hosted_page",
+      mode: "payment",
+      customer_email: email,
+      client_reference_id: order.order_id,
+      locale: "fr",
+      billing_address_collection: "auto",
+      phone_number_collection: { enabled: false },
+      automatic_tax: { enabled: taxOn },
+      allow_promotion_codes: false,
+      submit_type: "auto",
+      name_collection: { individual: { enabled: true } },
+      integration_identifier: "hosted_web_0002",
+      origin_context: "web",
       ...(order.has_physical ? { shipping_address_collection: { allowed_countries: allowedCountries } } : {}),
       invoice_creation: { enabled: true },
-      automatic_tax: { enabled: taxOn },
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,   // la réservation de stock dure 35 minutes : la session expire avant
       line_items,
       metadata: { orderId: order.order_id },
