@@ -63,11 +63,33 @@ export async function searchProblems(f: Filters): Promise<Problem[]> {
 }
 export async function getProblem(slug: string) { return (await getPublishedProblems()).find((p) => p.slug === slug) ?? null; }
 
+const CATALOG_PLACEHOLDERS = [
+  "resume (affiche dans la boutique)",
+  "description complete (paragraphes separes par une ligne vide)",
+  "ce qui est inclus (un point par ligne)",
+].map(norm);
+
+function isCatalogProductReady(p: Product): boolean {
+  const title = norm(p.title ?? "");
+  const slug = norm(p.slug ?? "");
+  const summary = norm(p.summary ?? "");
+  const description = norm(p.description ?? "");
+  const features = Array.isArray(p.features) ? p.features : [];
+  const images = Array.isArray(p.images) ? p.images : [];
+
+  if (!title || !slug || !summary || !description || !p.category_id) return false;
+  if (slug === "adresse-slug") return false;
+  if (CATALOG_PLACEHOLDERS.includes(summary) || CATALOG_PLACEHOLDERS.includes(description)) return false;
+  if (features.length === 0 || features.some((f) => CATALOG_PLACEHOLDERS.includes(norm(f)))) return false;
+  if (!images.some((i) => typeof i?.url === "string" && /^https:\/\//.test(i.url))) return false;
+  return true;
+}
+
 export const getPublishedProducts = unstable_cache(async (): Promise<Product[]> => {
   if (!isSupabaseConfigured) return [];
   const { data, error } = await supabasePublic().from("products").select("*").eq("status", "published").order("published_at", { ascending: false });
   if (error) throw new DataUnavailable("produits", error);
-  return (data ?? []) as Product[];
+  return (data ?? []).filter(isCatalogProductReady) as Product[];
 }, ["products"], { revalidate: 60, tags: ["products"] });
 
 export type ProductStats = { likes: number; shares: number; rating: number; reviews: number; verifiedReviews: number; comments: { id: string; parent_id: string | null; author_name: string; body: string; is_owner_reply: boolean; created_at: string }[]; reviewList: { id: string; author_name: string; rating: number; body: string; verified_purchase: boolean; created_at: string }[] };
