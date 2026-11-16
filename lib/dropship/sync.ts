@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { fetchInventory, type SupplierInventoryRecord } from "./connector";
+import { getRatesToEur, toEurCents } from "./fx";
 
 type Mapping = {
   id: string;
@@ -19,6 +20,10 @@ type Mapping = {
   supplier_currency: string | null;
   supplier_qty: number;
   available: boolean;
+  source_cost_cents: number | null;
+  source_currency: string | null;
+  fx_rate_to_eur: number | null;
+  external_product_id: string | null;
 };
 
 function retailFromCost(mapping: Mapping, costCents: number): number | null {
@@ -77,6 +82,18 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
   const qty = Math.max(0, record.supplier_qty ?? 0);
   const available = record.available ?? qty > 0;
   const cost = record.supplier_price_cents;
+  const normalizedMeta = record.raw && typeof record.raw === "object"
+    ? ((record.raw as Record<string, unknown>).normalized as Record<string, unknown> | undefined)
+    : undefined;
+  const sourceCost = Number.isFinite(Number(normalizedMeta?.source_cost_cents))
+    ? Number(normalizedMeta?.source_cost_cents)
+    : cost;
+  const sourceCurrency = typeof normalizedMeta?.source_currency === "string"
+    ? String(normalizedMeta.source_currency).toUpperCase()
+    : (record.supplier_currency ?? "EUR").toUpperCase();
+  const fxRate = Number.isFinite(Number(normalizedMeta?.fx_rate_to_eur))
+    ? Number(normalizedMeta?.fx_rate_to_eur)
+    : 1;
   const oldCost = mapping.supplier_cost_cents;
   const oldQty = mapping.supplier_qty;
   const oldAvailable = mapping.available;
@@ -91,14 +108,14 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     if (retail !== null && retail !== variant?.price_cents) {
       await db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id);
       await db.from("supplier_price_history").insert({
-        mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: record.supplier_currency ?? mapping.supplier_currency,
+        mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail, change_percent: percentChange(oldCost, cost), source: "sync",
       });
     } else {
       await db.from("product_variants").update({ stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id);
       if (priceChanged) {
         await db.from("supplier_price_history").insert({
-          mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: record.supplier_currency ?? mapping.supplier_currency,
+          mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
           retail_price_cents: variant?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
         });
       }
@@ -111,7 +128,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     await db.from("products").update(productUpdate).eq("id", mapping.product_id);
     if (priceChanged) {
       await db.from("supplier_price_history").insert({
-        mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: record.supplier_currency ?? mapping.supplier_currency,
+        mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail ?? product?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
       });
     }
@@ -122,8 +139,11 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     mapping_id: mapping.id,
     external_sku: record.external_sku,
     supplier_qty: record.supplier_qty,
-    supplier_price_cents: record.supplier_price_cents,
-    supplier_currency: record.supplier_currency,
+    supplier_price_cents: cost,
+    supplier_currency: "eur",
+    source_price_cents: sourceCost,
+    source_currency: sourceCurrency,
+    fx_rate_to_eur: fxRate,
     available,
     raw_payload: record.raw && typeof record.raw === "object" ? record.raw : {},
   });
@@ -131,7 +151,11 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
   const now = new Date().toISOString();
   await db.from("product_supplier_mappings").update({
     supplier_cost_cents: cost,
-    supplier_currency: record.supplier_currency ?? mapping.supplier_currency ?? "eur",
+    supplier_currency: "eur",
+    source_cost_cents: sourceCost,
+    source_currency: sourceCurrency,
+    fx_rate_to_eur: fxRate,
+    external_product_id: record.external_product_id ?? mapping.external_product_id ?? null,
     supplier_qty: qty,
     available,
     last_synced_at: now,
@@ -164,8 +188,32 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
       .eq("enabled", true);
     if (mappingError) throw mappingError;
 
-    const { records, connection } = await fetchInventory(connectionId, { timestamp: new Date().toISOString() });
-    const bySku = new Map(records.map((record) => [record.external_sku, record]));
+    const externalSkus = (mappings ?? []).map((mapping) => mapping.external_sku).filter(Boolean);
+    const { records, connection } = await fetchInventory(connectionId, { timestamp: new Date().toISOString() }, externalSkus);
+    const sourceCurrencies = [...new Set(records.map((record) => String(record.supplier_currency ?? "EUR").toUpperCase()).filter((currency) => currency !== "EUR"))];
+    const fxRates = sourceCurrencies.length ? await getRatesToEur(sourceCurrencies) : {};
+    const normalizedRecords = records.map((record) => {
+      const sourceCurrency = String(record.supplier_currency ?? "EUR").toUpperCase();
+      const sourceCost = record.supplier_price_cents;
+      if (sourceCurrency === "EUR" || sourceCost == null) return record;
+      const normalizedCost = toEurCents(sourceCost, sourceCurrency, fxRates);
+      return {
+        ...record,
+        supplier_price_cents: normalizedCost,
+        supplier_currency: "EUR",
+        raw: {
+          ...(record.raw && typeof record.raw === "object" ? record.raw : {}),
+          normalized: {
+            source_currency: sourceCurrency,
+            source_cost_cents: sourceCost,
+            fx_rate_to_eur: 1 / fxRates[sourceCurrency].rate,
+            cost_cents: normalizedCost,
+            currency: "EUR",
+          },
+        },
+      };
+    });
+    const bySku = new Map(normalizedRecords.map((record) => [record.external_sku, record]));
     let applied = 0;
     let changed = 0;
     let priceChanges = 0;
