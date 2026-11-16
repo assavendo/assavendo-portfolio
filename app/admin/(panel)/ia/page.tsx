@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { PRESETS, ROLES } from "@/lib/ai/policy";
@@ -21,6 +22,8 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
   await requireAdmin();
   const sp = await searchParams;
   const db = supabaseAdmin();
+  const researchSubmissionId = randomUUID();
+  const productSubmissionId = randomUUID();
 
   const [
     { data: settings },
@@ -320,12 +323,14 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
           fieldLabel="Recherche produit / catalogue"
           placeholder="Ex. analyse des catégories qui manquent"
           buttonLabel="Lancer"
+          submissionId={researchSubmissionId}
         />
         <AiRequestForm
           action={askProduct}
           fieldLabel="Nouvelle fiche produit"
           placeholder="Décrire la fiche à préparer"
           buttonLabel="Proposer"
+          submissionId={productSubmissionId}
         />
       </div>
       {(notes ?? []).map((n) => <div key={n.id} className="panel"><p className="muted small">{n.title} · {fmt(n.created_at)}</p><p style={{ whiteSpace:"pre-wrap" }}>{String(n.result?.text ?? "")}</p></div>)}
