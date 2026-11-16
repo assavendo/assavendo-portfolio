@@ -1,4 +1,3 @@
-import { supabaseAdmin } from "../../supabase/server.ts";
 import { decryptSupplierSecret, encryptSupplierSecret } from "../crypto.ts";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, SupplierAdapter } from "./types";
 
@@ -82,6 +81,7 @@ async function cjFetch<T>(
 }
 
 async function saveCredentials(connection: AdapterConnection, next: CjCredentials) {
+  const { supabaseAdmin } = await import("../../supabase/server.ts");
   await supabaseAdmin().from("supplier_connections").update({
     credentials_ciphertext: encryptSupplierSecret(JSON.stringify(next)),
     secret_ciphertext: next.accessToken ? encryptSupplierSecret(next.accessToken) : null,
