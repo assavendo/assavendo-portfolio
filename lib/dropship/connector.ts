@@ -3,6 +3,8 @@ import { getByPath, renderTemplate } from "./template";
 export { getByPath } from "./template";
 
 import { decryptSupplierSecret } from "./crypto";
+import { getSupplierAdapter } from "./adapters";
+import type { AdapterConnection } from "./adapters/types";
 
 type Connection = {
   id: string;
@@ -37,6 +39,9 @@ type Connection = {
   last_success_at: string | null;
   provider_key: string | null;
   integration_mode: string | null;
+  adapter: string;
+  credentials_ciphertext: string | null;
+  sandbox_enabled: boolean;
 };
 
 export type SupplierInventoryRecord = {
@@ -48,7 +53,7 @@ export type SupplierInventoryRecord = {
   raw: unknown;
 };
 
-const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,sync_interval_seconds,provider_key,integration_mode,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
+const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,sync_interval_seconds,provider_key,integration_mode,adapter,credentials_ciphertext,sandbox_enabled,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
 
 
 function stringValue(value: unknown, max = 500): string | null {
@@ -131,9 +136,14 @@ export async function loadSupplierConnection(id: string): Promise<Connection> {
   return getConnection(id);
 }
 
-export async function fetchInventory(connectionId: string, context: Record<string, unknown> = {}): Promise<{ connection: Connection; records: SupplierInventoryRecord[] }> {
+export async function fetchInventory(connectionId: string, context: Record<string, unknown> = {}, externalSkus: string[] = []): Promise<{ connection: Connection; records: SupplierInventoryRecord[] }> {
   const connection = await getConnection(connectionId);
   if (!connection.enabled) throw new Error("Supplier connection is disabled.");
+  const adapter = getSupplierAdapter(connection.adapter);
+  if (adapter) {
+    const records = await adapter.fetchInventory(connection as AdapterConnection, externalSkus);
+    return { connection, records };
+  }
   if (connection.integration_mode && connection.integration_mode !== "generic_rest") {
     throw new Error(`Le fournisseur ${connection.name} utilise le profil ${connection.integration_mode}. Son adaptateur natif/partenaire doit être activé avant la synchronisation REST.`);
   }
@@ -172,8 +182,10 @@ export async function callSupplierOrder(connectionId: string, orderContext: Reco
 }> {
   const connection = await getConnection(connectionId);
   if (!connection.enabled || !connection.auto_order_enabled) throw new Error("Supplier auto-order is disabled.");
+  const adapter = getSupplierAdapter(connection.adapter);
+  if (adapter) return adapter.submitOrder(connection as AdapterConnection, orderContext, idempotencyKey);
   if (connection.integration_mode && connection.integration_mode !== "generic_rest") {
-    throw new Error(`Le fournisseur ${connection.name} utilise le profil ${connection.integration_mode}. Son adaptateur natif/partenaire doit être activé avant l’envoi automatique.`);
+    throw new Error("Le fournisseur " + connection.name + " utilise le profil " + connection.integration_mode + " sans adaptateur actif.");
   }
   if (!connection.base_url || !connection.order_path) throw new Error("Configuration REST de commande fournisseur incomplète.");
   const payload = renderTemplate(connection.order_payload_template, orderContext);
@@ -195,6 +207,8 @@ export async function checkSupplierOrderStatus(connectionId: string, externalOrd
   raw: unknown;
 }> {
   const connection = await getConnection(connectionId);
+  const adapter = getSupplierAdapter(connection.adapter);
+  if (adapter) return adapter.getOrderStatus(connection as AdapterConnection, externalOrderId, context);
   const baseUrl = connection.base_url;
   if (!baseUrl) throw new Error("Configuration REST fournisseur incomplète.");
   const endpointTemplate = typeof connection.config?.order_status_endpoint_template === "string" ? connection.config.order_status_endpoint_template : null;
