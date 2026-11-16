@@ -47,24 +47,22 @@ test("CJ inventory adapter resolves mapped SKUs and keeps source USD price", asy
     const url = String(input);
     calls.push(url);
 
-    if (url.includes("/product/variant/query?")) {
-      return new Response(JSON.stringify({
-        code: 200,
-        success: true,
-        data: [{ vid: "VID-1", variantSku: "SKU-1", variantSellPrice: 12.34 }],
-      }), { status: 200, headers: { "content-type": "application/json" } });
-    }
-
-    if (url.includes("/product/variant/queryByVid?")) {
+    if (url.includes("/product/query?")) {
       return new Response(JSON.stringify({
         code: 200,
         success: true,
         data: {
-          vid: "VID-1",
-          variantSku: "SKU-1",
-          variantSellPrice: 12.34,
-          inventories: [{ countryCode: "CN", totalInventory: 7 }],
+          pid: "PID-1",
+          variants: [{ vid: "VID-1", pid: "PID-1", variantSku: "SKU-1", variantSellPrice: 12.34 }],
         },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+
+    if (url.includes("/product/stock/queryBySku?")) {
+      return new Response(JSON.stringify({
+        code: 200,
+        success: true,
+        data: [{ countryCode: "CN", totalInventoryNum: 7, cjInventoryNum: 2, factoryInventoryNum: 5 }],
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
 
@@ -81,7 +79,8 @@ test("CJ inventory adapter resolves mapped SKUs and keeps source USD price", asy
     assert.equal(calls.length, 2);
     assert.equal(records.length, 1);
     assert.equal(records[0].external_sku, "SKU-1");
-    assert.equal(records[0].external_product_id, "VID-1");
+    assert.equal(records[0].external_product_id, "PID-1");
+    assert.equal(records[0].external_variant_id, "VID-1");
     assert.equal(records[0].supplier_qty, 7);
     assert.equal(records[0].supplier_price_cents, 1234);
     assert.equal(records[0].supplier_currency, "USD");
@@ -151,7 +150,8 @@ test("CJ order creation reconciles an ambiguous failure by orderNumber", async (
         },
         items: [{
           sku: "SKU-1",
-          external_product_id: "VID-1",
+          external_product_id: "PID-1",
+          external_variant_id: "VID-1",
           quantity: 2,
           store_line_item_id: "line-1",
         }],
