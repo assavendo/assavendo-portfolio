@@ -184,3 +184,4 @@ export async function createDraftProduct(p: Proposal, options: { images?: { url:
   }
 
   return productId;
+}
