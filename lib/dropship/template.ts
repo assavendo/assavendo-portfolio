@@ -1,4 +1,4 @@
-/** Helpers purs du connecteur fournisseur : aucun accès réseau ou Supabase, donc testables directement avec Node. */
+/** Helpers purs du connecteur fournisseur : aucune dépendance Next/Supabase, donc testables directement avec Node. */
 export function getByPath(value: unknown, path: string): unknown {
   if (!path) return value;
   return path.split(".").filter(Boolean).reduce<unknown>((current, key) => {
