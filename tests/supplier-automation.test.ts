@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import testModule from "node:test";
-import { renderTemplate } from "../lib/dropship/connector.ts";
+import { renderTemplate } from "../lib/dropship/template.ts";
 import { encryptSupplierSecret, decryptSupplierSecret, signSupplierWebhook, verifySupplierWebhook } from "../lib/dropship/crypto.ts";
 
 process.env.SUPPLIER_CREDENTIAL_KEY = process.env.SUPPLIER_CREDENTIAL_KEY || "test-only-supplier-key";
