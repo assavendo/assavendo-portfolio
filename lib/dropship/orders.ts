@@ -42,7 +42,7 @@ async function connectionMap(ids: string[]) {
 
 export async function queueSupplierOrders(orderId: string) {
   const db = supabaseAdmin();
-  const { data: order, error: orderError } = await db.from("orders").select("id,order_number,status,customer_email,shipping,billing,currency,amount_cents,fulfilment").eq("id", orderId).maybeSingle();
+  const { data: order, error: orderError } = await db.from("orders").select("id,order_number,status,customer_email,shipping,billing,currency,amount_cents,subtotal_cents,fulfilment").eq("id", orderId).maybeSingle();
   if (orderError || !order) throw new Error(orderError?.message || "Commande introuvable.");
   if (order.status !== "paid") return { queued: 0, needsReview: false };
   const { data: items, error: itemsError } = await db.from("order_items")
@@ -94,7 +94,22 @@ export async function queueSupplierOrders(orderId: string) {
     }
 
     const idempotencyKey = orderId + ":" + connectionId;
-    const { data: supplierOrder, error: supplierOrderError } = await db.from("supplier_orders").upsert({
+    const { data: existingSupplierOrder } = await db.from("supplier_orders")
+      .select("id,status")
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
+    if (existingSupplierOrder) {
+      // Idempotence forte : un deuxième appel de paiement/webhook ne réécrit jamais
+      // une commande déjà soumise, confirmée ou mise en revue.
+      continue;
+    }
+
+    if (totalCost > Number(order.subtotal_cents ?? order.amount_cents ?? 0)) {
+      needsReview = true;
+      continue;
+    }
+
+    const { data: supplierOrder, error: supplierOrderError } = await db.from("supplier_orders").insert({
       order_group_id: orderGroup.id,
       supplier_connection_id: connectionId,
       order_id: orderId,
@@ -104,7 +119,7 @@ export async function queueSupplierOrders(orderId: string) {
       supplier_total_cents: totalCost,
       idempotency_key: idempotencyKey,
       next_attempt_at: needsReview ? null : new Date().toISOString(),
-    }, { onConflict: "idempotency_key", ignoreDuplicates: false }).select("id").single();
+    }).select("id").single();
     if (supplierOrderError || !supplierOrder) throw supplierOrderError ?? new Error("Unable to enqueue supplier order.");
     await db.from("supplier_order_items").delete().eq("supplier_order_id", supplierOrder.id);
     for (const group of groupItems) {
