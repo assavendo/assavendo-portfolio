@@ -16,6 +16,8 @@ type Mapping = {
   max_retail_cents: number | null;
   supplier_cost_cents: number | null;
   supplier_currency: string | null;
+  supplier_qty: number;
+  available: boolean;
 };
 
 function retailFromCost(mapping: Mapping, costCents: number): number | null {
@@ -41,14 +43,16 @@ function percentChange(oldValue: number | null, nextValue: number | null): numbe
 
 async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, connectionId: string): Promise<{ changed: boolean; priceChanged: boolean; stockChanged: boolean }> {
   const db = supabaseAdmin();
-  const qty = record.supplier_qty === null ? mapping.supplier_cost_cents === null ? 0 : mapping.supplier_cost_cents >= 0 ? 0 : 0 : record.supplier_qty;
-  const available = record.available ?? (record.supplier_qty !== null ? record.supplier_qty > 0 : false);
+  const qty = Math.max(0, record.supplier_qty ?? 0);
+  const available = record.available ?? qty > 0;
   const cost = record.supplier_price_cents;
   const oldCost = mapping.supplier_cost_cents;
-  const oldQty = Number((mapping as Mapping & { supplier_qty?: number }).supplier_qty ?? -1);
+  const oldQty = mapping.supplier_qty;
+  const oldAvailable = mapping.available;
   const priceChanged = cost !== null && cost !== oldCost;
-  const stockChanged = oldQty !== -1 && qty !== oldQty;
-  let changed = priceChanged || stockChanged || available !== Boolean((mapping as Mapping & { available?: boolean }).available);
+  const stockChanged = qty !== oldQty;
+  const availabilityChanged = available !== oldAvailable;
+  let changed = priceChanged || stockChanged || availabilityChanged;
 
   if (mapping.variant_id) {
     const { data: variant } = await db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle();
