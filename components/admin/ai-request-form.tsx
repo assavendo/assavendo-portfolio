@@ -7,12 +7,12 @@ type Props = {
   fieldLabel: string;
   placeholder: string;
   buttonLabel: string;
+  submissionId: string;
 };
 
-export default function AiRequestForm({ action, fieldLabel, placeholder, buttonLabel }: Props) {
+export default function AiRequestForm({ action, fieldLabel, placeholder, buttonLabel, submissionId }: Props) {
   const [pending, setPending] = useState(false);
   const locked = useRef(false);
-  const submissionId = useRef(crypto.randomUUID());
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (locked.current) {
