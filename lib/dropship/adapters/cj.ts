@@ -214,7 +214,7 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
 
   const fromCountryCode = configString(connection, "cj_from_country_code", "CN").toUpperCase();
   const logisticName = configString(connection, "cj_logistic_name");
-  const shopLogisticsType = Number(connection.config?.cj_shop_logistics_type ?? 3);
+  const shopLogisticsType = Number(connection.config?.cj_shop_logistics_type ?? 2);
   const payType = Number(connection.config?.cj_pay_type ?? 2);
   const platform = configString(connection, "cj_platform", "Api");
   const country = destinationCountry(orderContext);
@@ -255,6 +255,38 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
   };
 }
 
+type CjOrderSummary = {
+  orderId?: string;
+  orderNum?: string;
+  orderNumber?: string;
+  orderStatus?: string;
+  trackNumber?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+};
+
+async function findExistingOrder(
+  connection: AdapterConnection,
+  accessToken: string,
+  orderNumber: string,
+): Promise<CjOrderSummary | null> {
+  if (!orderNumber) return null;
+  try {
+    return await cjFetch<CjOrderSummary>(
+      connection,
+      "/shopping/order/getOrderDetail",
+      "GET",
+      undefined,
+      { orderId: orderNumber },
+      accessToken,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/CJ 803:|Order not found/i.test(message)) return null;
+    throw error;
+  }
+}
+
 async function submitOrder(
   connection: AdapterConnection,
   orderContext: Record<string, unknown>,
@@ -263,10 +295,22 @@ async function submitOrder(
   void idempotencyKey;
   const { token } = await ensureAccessToken(connection);
   const payload = buildOrderPayload(connection, orderContext);
+  const orderNumber = String(payload.orderNumber ?? "");
+  const existing = await findExistingOrder(connection, token, orderNumber);
+  if (existing?.orderId || existing?.orderNum || existing?.orderNumber) {
+    return {
+      external_order_id: String(existing.orderId ?? existing.orderNum ?? existing.orderNumber),
+      external_status: String(existing.orderStatus ?? "CREATED"),
+      tracking_number: String(existing.trackNumber ?? existing.trackingNumber ?? "") || null,
+      tracking_url: String(existing.trackingUrl ?? "") || null,
+      raw: { reconciliation: true, ...existing },
+    };
+  }
+
   const referer = configString(connection, "cj_referer");
   const data = await cjFetch<Record<string, unknown>>(
     connection,
-    "/shopping/order/createOrderV3",
+    "/shopping/order/createOrderV2",
     "POST",
     payload,
     undefined,
@@ -274,17 +318,16 @@ async function submitOrder(
     referer ? { Referer: referer } : undefined,
   );
 
-  const orderId = String(data.orderId ?? "");
-  const orderNumber = String(data.orderNumber ?? "");
+  const orderId = String(data.orderId ?? data.cjOrderId ?? "");
+  const orderNumberResponse = String(data.orderNumber ?? data.orderNum ?? "");
   return {
-    external_order_id: orderId || orderNumber || null,
+    external_order_id: orderId || orderNumberResponse || orderNumber || null,
     external_status: String(data.orderStatus ?? "CREATED"),
-    tracking_number: null,
-    tracking_url: null,
+    tracking_number: String(data.trackNumber ?? data.trackingNumber ?? "") || null,
+    tracking_url: String(data.trackingUrl ?? "") || null,
     raw: data,
   };
 }
-
 async function getOrderStatus(
   connection: AdapterConnection,
   externalOrderId: string,
@@ -302,7 +345,7 @@ async function getOrderStatus(
   return {
     external_order_id: externalOrderId,
     external_status: String(data.orderStatus ?? "CREATED"),
-    tracking_number: data.trackNumber ? String(data.trackNumber) : null,
+    tracking_number: data.trackNumber ? String(data.trackNumber) : (data.trackingNumber ? String(data.trackingNumber) : null),
     tracking_url: data.trackingUrl ? String(data.trackingUrl) : null,
     raw: data,
   };
