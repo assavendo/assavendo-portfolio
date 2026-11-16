@@ -204,7 +204,7 @@ export async function deleteSupplierMapping(form: FormData) {
 export async function retrySupplierOrder(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
-  const { error } = await supabaseAdmin().from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).in("status", ["failed","unknown","needs_review"]);
+  const { error } = await supabaseAdmin().from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).in("status", ["failed","needs_review"]);
   if (error) throw new Error("Impossible de remettre la commande fournisseur dans la file : " + error.message);
   await dispatchSupplierOrders(1);
   return done("Commande fournisseur remise en traitement.");
