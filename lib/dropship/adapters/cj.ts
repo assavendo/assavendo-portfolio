@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase/server";
+import { supabaseAdmin } from "../../supabase/server.ts";
 import { decryptSupplierSecret, encryptSupplierSecret } from "@/lib/dropship/crypto";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, SupplierAdapter } from "./types";
 
