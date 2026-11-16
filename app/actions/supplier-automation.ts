@@ -233,6 +233,7 @@ export async function toggleSupplierConnection(form: FormData) {
 export async function testSupplierConnection(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
+  let successMessage: string;
   try {
     const connection = await loadSupplierConnection(id);
     const adapter = getSupplierAdapter(connection.adapter);
@@ -243,18 +244,26 @@ export async function testSupplierConnection(form: FormData) {
         last_success_at: new Date().toISOString(),
         last_error: null,
       }).eq("id", id);
-      return done("Test réussi : " + (result.detail ?? "fournisseur connecté."));
+      successMessage = "Test réussi : " + (result.detail ?? "fournisseur connecté.");
+    } else {
+      const result = await fetchInventory(id, { test: true, timestamp: new Date().toISOString() });
+      await supabaseAdmin().from("supplier_connections").update({
+        status: "healthy",
+        last_success_at: new Date().toISOString(),
+        last_error: null,
+      }).eq("id", id);
+      successMessage = "Test réussi : " + result.records.length + " référence(s) fournisseur lue(s).";
     }
-    const result = await fetchInventory(id, { test: true, timestamp: new Date().toISOString() });
-    await supabaseAdmin().from("supplier_connections").update({ status: "healthy", last_success_at: new Date().toISOString(), last_error: null }).eq("id", id);
-    return done("Test réussi : " + result.records.length + " référence(s) fournisseur lue(s).");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Échec du test fournisseur.";
-    await supabaseAdmin().from("supplier_connections").update({ status: "degraded", last_error: message.slice(0,1000) }).eq("id", id);
+    await supabaseAdmin().from("supplier_connections").update({
+      status: "degraded",
+      last_error: message.slice(0, 1000),
+    }).eq("id", id);
     throw new Error("Test fournisseur échoué : " + message);
   }
+  return done(successMessage);
 }
-
 export async function syncSupplierNow(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
