@@ -10,6 +10,7 @@ test("CJ webhook Base64 HMAC uses the exact raw body", () => {
   const signature = signSupplierWebhookBase64(body, "123456789");
   assert.equal(verifySupplierWebhookBase64(body, signature, "123456789"), true);
   assert.equal(verifySupplierWebhookBase64(body + "x", signature, "123456789"), false);
+  assert.notEqual(signSupplierWebhookBase64(body, "123456789"), signSupplierWebhookBase64(body, "1234567890"));
 });
 
 test("supplier FX conversion keeps EUR normalization deterministic", () => {
