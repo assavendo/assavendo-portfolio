@@ -168,20 +168,29 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
 
   for (const sku of uniqueSkus) {
     const variant = await fetchVariant(connection, token, sku);
-    const sourcePrice = parseMoney(variant.variantSellPrice);
-    const inventories = Array.isArray(variant.inventories) ? variant.inventories : [];
+    const detailed = await cjFetch<CjVariant>(
+      connection,
+      "/product/variant/queryByVid",
+      "GET",
+      undefined,
+      { vid: variant.vid, features: "enable_inventory" },
+      token,
+    );
+    const resolved = detailed?.vid ? detailed : variant;
+    const sourcePrice = parseMoney(resolved.variantSellPrice);
+    const inventories = Array.isArray(resolved.inventories) ? resolved.inventories : [];
     const qty = inventories.reduce(
       (sum, inventory) => sum + Math.max(0, Number(inventory.totalInventory ?? 0)),
       0,
     );
     rawRows.push({
-      external_sku: String(variant.variantSku ?? sku),
-      external_product_id: String(variant.vid),
+      external_sku: String(resolved.variantSku ?? sku),
+      external_product_id: String(resolved.vid),
       supplier_qty: qty,
       supplier_price_cents: sourcePrice,
       supplier_currency: "USD",
       available: qty > 0,
-      raw: { variant, sku, inventories },
+      raw: { variant: resolved, sku, inventories },
     });
   }
 
