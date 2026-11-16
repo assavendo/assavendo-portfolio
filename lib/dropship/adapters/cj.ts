@@ -1,6 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { decryptSupplierSecret, encryptSupplierSecret } from "@/lib/dropship/crypto";
-import { getRatesToEur, toEurCents } from "@/lib/dropship/fx";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, SupplierAdapter } from "./types";
 
 type CjCredentials = {
@@ -129,20 +128,6 @@ function parseMoney(value: unknown): number | null {
   return Number.isFinite(amount) ? Math.round(amount * 100) : null;
 }
 
-function targetCurrency(connection: AdapterConnection): string {
-  return String(connection.config?.base_currency ?? "EUR").toUpperCase();
-}
-
-function configString(connection: AdapterConnection, key: string, fallback = ""): string {
-  const value = connection.config?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : fallback;
-}
-
-function destinationCountry(orderContext: Record<string, unknown>): string {
-  const shipping = (orderContext.shipping ?? {}) as Record<string, unknown>;
-  return String(shipping.countryCode ?? shipping.country ?? "").trim().toUpperCase();
-}
-
 async function fetchVariant(connection: AdapterConnection, accessToken: string, sku: string) {
   const rows = await cjFetch<CjVariant[]>(
     connection,
@@ -200,29 +185,7 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
     });
   }
 
-  const target = targetCurrency(connection);
-  if (target === "USD") return rawRows;
-  if (target !== "EUR") throw new Error("Devise de base CJ non supportée: " + target);
-
-  const rates = await getRatesToEur(["USD"]);
-  return rawRows.map((row) => {
-    if (row.supplier_price_cents == null) return row;
-    const eur = toEurCents(row.supplier_price_cents, "USD", rates);
-    return {
-      ...row,
-      supplier_price_cents: eur,
-      supplier_currency: "EUR",
-      raw: {
-        ...(row.raw as Record<string, unknown>),
-        normalized: {
-          currency: "EUR",
-          source_currency: "USD",
-          fx_rate_to_eur: 1 / rates.USD.rate,
-          price_cents: eur,
-        },
-      },
-    };
-  });
+  return rawRows;
 }
 
 function buildOrderPayload(connection: AdapterConnection, orderContext: Record<string, unknown>) {
