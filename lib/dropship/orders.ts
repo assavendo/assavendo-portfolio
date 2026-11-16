@@ -221,6 +221,10 @@ async function dispatchOne(supplierOrderId: string) {
     await db.from("supplier_order_groups").update({ status: "processing" }).eq("order_id", current.order_id);
   } else if (!result.external_order_id) {
     await db.from("supplier_order_groups").update({ status: "needs_review" }).eq("order_id", current.order_id);
+    await db.from("orders").update({
+      needs_review: true,
+      review_note: "Le fournisseur n'a pas confirmé la création de la commande. Vérification manuelle obligatoire.",
+    }).eq("id", current.order_id);
   }
   return { submitted: Boolean(result.external_order_id), externalOrderId: result.external_order_id };
 }
@@ -234,7 +238,14 @@ export async function dispatchSupplierOrders(limit = 10) {
     try { results.push(await dispatchOne(row.id)); }
     catch (error) {
       const message = error instanceof Error ? error.message : "Supplier order dispatch failed.";
+      const { data: failedOrder } = await db.from("supplier_orders").select("order_id").eq("id", row.id).maybeSingle();
       await db.from("supplier_orders").update({ status: "unknown", last_error: message.slice(0,1000), next_attempt_at: null }).eq("id", row.id);
+      if (failedOrder?.order_id) {
+        await db.from("orders").update({
+          needs_review: true,
+          review_note: "L'envoi automatique au fournisseur a échoué. Aucune nouvelle tentative automatique ne sera effectuée sans revue.",
+        }).eq("id", failedOrder.order_id);
+      }
       results.push({ id: row.id, error: message });
     }
   }
