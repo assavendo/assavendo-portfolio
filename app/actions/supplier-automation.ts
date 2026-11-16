@@ -37,7 +37,7 @@ const connectionSchema = z.object({
   sync_interval_seconds: z.coerce.number().int().min(60).max(86400),
   auto_order_enabled: z.string().optional(),
   webhook_enabled: z.string().optional(),
-  max_supplier_order_cents: z.coerce.number().int().min(50).max(10_000_000),
+  max_supplier_order_eur: z.coerce.number().min(0.5).max(100000),
 });
 
 const mappingSchema = z.object({
@@ -48,10 +48,10 @@ const mappingSchema = z.object({
   external_sku: z.string().trim().min(1).max(160),
   auto_reprice: z.string().optional(),
   reprice_mode: z.enum(["cost_only","cost_plus_margin","cost_plus_markup","supplier_price"]),
-  margin_bps: z.coerce.number().int().min(0).max(9000),
-  markup_cents: z.coerce.number().int().min(0).max(10_000_000),
-  min_retail_cents: z.coerce.number().int().min(50).max(10_000_000),
-  max_retail_cents: z.coerce.number().int().min(0).max(100_000_000).optional(),
+  margin_percent: z.coerce.number().min(0).max(90),
+  markup_eur: z.coerce.number().min(0).max(100000),
+  min_retail_eur: z.coerce.number().min(0.5).max(100000),
+  max_retail_eur: z.preprocess((v) => v === "" || v === null || v === undefined ? undefined : Number(v), z.number().min(0.5).max(100000).optional()),
 });
 
 function done(message: string) {
@@ -101,7 +101,7 @@ export async function saveSupplierConnection(form: FormData) {
     secret_ciphertext: parsed.data.api_secret ? encryptSupplierSecret(parsed.data.api_secret) : undefined,
     webhook_secret_ciphertext: parsed.data.webhook_secret ? encryptSupplierSecret(parsed.data.webhook_secret) : undefined,
     config: {
-      max_supplier_order_cents: parsed.data.max_supplier_order_cents,
+      max_supplier_order_cents: Math.round(parsed.data.max_supplier_order_eur * 100),
       order_status_endpoint_template: parsed.data.order_status_endpoint_template || null,
       order_external_id_path: parsed.data.order_response_id_path || null,
       order_response_status_path: parsed.data.order_status_path || null,
@@ -177,10 +177,10 @@ export async function saveSupplierMapping(form: FormData) {
     enabled: true,
     auto_reprice: d.auto_reprice === "on",
     reprice_mode: d.reprice_mode,
-    margin_bps: d.margin_bps,
-    markup_cents: d.markup_cents,
-    min_retail_cents: d.min_retail_cents,
-    max_retail_cents: d.max_retail_cents || null,
+    margin_bps: Math.round(d.margin_percent * 100),
+    markup_cents: Math.round(d.markup_eur * 100),
+    min_retail_cents: Math.round(d.min_retail_eur * 100),
+    max_retail_cents: d.max_retail_eur == null ? null : Math.round(d.max_retail_eur * 100),
   };
 
   if (d.id) {
