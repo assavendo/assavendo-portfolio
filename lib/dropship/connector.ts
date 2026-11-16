@@ -35,6 +35,8 @@ type Connection = {
   status: string;
   last_sync_at: string | null;
   last_success_at: string | null;
+  provider_key: string | null;
+  integration_mode: string | null;
 };
 
 export type SupplierInventoryRecord = {
