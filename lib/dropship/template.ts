@@ -1,4 +1,3 @@
-/** Helpers purs du connecteur fournisseur : aucune dépendance Next/Supabase, donc testables directement avec Node. */
 export function getByPath(value: unknown, path: string): unknown {
   if (!path) return value;
   return path.split(".").filter(Boolean).reduce<unknown>((current, key) => {
@@ -16,11 +15,7 @@ export function renderTemplate(value: unknown, context: Record<string, unknown>)
     if (pure) return getByPath(context, pure[1].trim());
     return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, path: string) => {
       const resolved = getByPath(context, path.trim());
-      return resolved === null || resolved === undefined
-        ? ""
-        : typeof resolved === "object"
-          ? JSON.stringify(resolved)
-          : String(resolved);
+      return resolved === null || resolved === undefined ? "" : typeof resolved === "object" ? JSON.stringify(resolved) : String(resolved);
     });
   }
   if (Array.isArray(value)) return value.map((entry) => renderTemplate(entry, context));
