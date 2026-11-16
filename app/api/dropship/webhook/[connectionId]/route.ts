@@ -156,7 +156,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ connectionId: 
     let openId = "";
     try {
       const credentials = credentialRaw ? JSON.parse(credentialRaw) as Record<string, unknown> : {};
-      openId = typeof credentials.openId === "string" ? credentials.openId : "";
+      openId = credentials.openId !== undefined && credentials.openId !== null ? String(credentials.openId) : "";
     } catch {}
     valid = Boolean(openId && signature && verifySupplierWebhookBase64(raw, signature, openId));
   } else {
