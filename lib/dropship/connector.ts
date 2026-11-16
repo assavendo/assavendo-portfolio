@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { renderTemplate } from "./template";
+import { getByPath, renderTemplate } from "./template";
 export { getByPath } from "./template";
 
 import { decryptSupplierSecret } from "./crypto";
