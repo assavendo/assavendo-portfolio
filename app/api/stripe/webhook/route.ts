@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { alertOrderProblem, firstRow, sendCartOrderEmail, sendOrderEmail, type FulfilRow } from "@/lib/orders";
+import { queueSupplierOrders } from "@/lib/dropship/orders";
 
 export const runtime = "nodejs";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -96,4 +97,25 @@ async function fulfil(db: ReturnType<typeof supabaseAdmin>, s: Stripe.Checkout.S
   if (r.result === "mismatch") { await alertOrderProblem(orderId, "Montant ou devise différents de la commande : aucun lien de téléchargement n'a été émis. Vérifiez le paiement dans Stripe."); return; }
   if (r.result === "ignored") return;
   if (!r.email_sent && !(await (isCart ? sendCartOrderEmail(db, r.order_id) : sendOrderEmail(db, r)))) throw new Error("E-mail de confirmation non envoyé : événement rejoué par Stripe");
+
+  if (isCart) {
+    try {
+      const automation = await queueSupplierOrders(r.order_id);
+      if (automation.needsReview) {
+        await db.from("orders").update({
+          needs_review: true,
+          review_note: "Commande payée : un contrôle fournisseur est requis avant tout envoi automatique.",
+        }).eq("id", r.order_id);
+        await alertOrderProblem(r.order_id, "La commande physique a été payée mais le contrôle fournisseur a demandé une revue humaine. Aucun envoi fournisseur non autorisé n'a été exécuté.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Supplier automation failed.";
+      await db.from("orders").update({
+        needs_review: true,
+        review_note: "Commande payée : l'automatisation fournisseur a échoué et doit être reprise manuellement.",
+      }).eq("id", r.order_id);
+      await alertOrderProblem(r.order_id, "L'envoi fournisseur automatique a rencontré une erreur : " + message);
+      console.error("[supplier automation]", r.order_id, message);
+    }
+  }
 }
