@@ -228,7 +228,7 @@ function ConnectionForm({ c }: { c?: Connection }) {
         <label><div className="saw-label">Template JSON de commande</div><textarea className="saw-textarea" name="order_payload_template" defaultValue={template}/></label>
       </div>
     </details>
-    ) : null
+    ) : null}
 
     <div className="saw-three">
       <label><div className="saw-label">Plafond achat fournisseur (€)</div><input className="saw-input" type="number" step="0.01" name="max_supplier_order_eur" defaultValue={Number(c?.config?.max_supplier_order_cents ?? 100000)/100}/></label>
