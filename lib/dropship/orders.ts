@@ -19,6 +19,7 @@ type Mapping = {
   product_id: string;
   variant_id: string | null;
   external_sku: string;
+  external_product_id: string | null;
   enabled: boolean;
   available: boolean;
   supplier_qty: number;
@@ -55,7 +56,7 @@ export async function queueSupplierOrders(orderId: string) {
   if (!(items ?? []).length) return { queued: 0, needsReview: false };
 
   const { data: mappings, error: mappingError } = await db.from("product_supplier_mappings")
-    .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,available,supplier_qty,supplier_cost_cents,supplier_currency,last_synced_at,priority,destination_countries")
+    .select("id,supplier_connection_id,product_id,variant_id,external_sku,external_product_id,enabled,available,supplier_qty,supplier_cost_cents,supplier_currency,last_synced_at,priority,destination_countries")
     .eq("enabled", true);
   if (mappingError) throw mappingError;
 
@@ -160,6 +161,7 @@ export async function queueSupplierOrders(orderId: string) {
           order_item_id: item.id,
           mapping_id: group.mapping.id,
           external_sku: group.mapping.external_sku,
+          external_product_id: group.mapping.external_product_id,
           quantity: item.qty,
           supplier_unit_cost_cents: group.mapping.supplier_cost_cents ?? 0,
           currency: group.mapping.supplier_currency ?? "eur",
@@ -190,6 +192,8 @@ function orderContext(order: any, supplierItems: any[]) {
     billing: order.billing ?? {},
     items: supplierItems.map((item) => ({
       sku: item.external_sku,
+      external_product_id: item.external_product_id ?? null,
+      store_line_item_id: item.id,
       quantity: item.quantity,
       unit_cost_cents: item.supplier_unit_cost_cents,
       currency: item.currency,
@@ -223,7 +227,7 @@ async function dispatchOne(supplierOrderId: string) {
   const current = claim.data[0];
 
   const { data: order } = await db.from("orders").select("id,order_number,status,customer_email,shipping,billing,currency,amount_cents,fulfilment").eq("id", current.order_id).maybeSingle();
-  const { data: items } = await db.from("supplier_order_items").select("id,external_sku,quantity,supplier_unit_cost_cents,currency,order_items(title,variant_label)").eq("supplier_order_id", supplierOrderId);
+  const { data: items } = await db.from("supplier_order_items").select("id,external_sku,external_product_id,quantity,supplier_unit_cost_cents,currency,order_items(title,variant_label)").eq("supplier_order_id", supplierOrderId);
   const connection = await loadSupplierConnection(current.supplier_connection_id);
   if (!order || order.status !== "paid" || !connection.enabled || !connection.auto_order_enabled || !items?.length) {
     await db.from("supplier_orders").update({ status: "needs_review", last_error: "Commande fournisseur non éligible à l'envoi automatique." }).eq("id", supplierOrderId);
