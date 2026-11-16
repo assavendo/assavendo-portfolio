@@ -18,6 +18,7 @@ export type AdapterConnection = {
 export type AdapterInventoryRecord = {
   external_sku: string;
   external_product_id?: string | null;
+  external_variant_id?: string | null;
   supplier_qty: number | null;
   supplier_price_cents: number | null;
   supplier_currency: string | null;
