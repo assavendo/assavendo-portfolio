@@ -76,7 +76,7 @@ export async function saveSupplierConnection(form: FormData) {
   const row = {
     name: parsed.data.name,
     adapter: "generic_rest",
-    base_url: parsed.data.base_url.replace(//+$/, ""),
+    base_url: parsed.data.base_url.replace(/\/+$/, ""),
     enabled: Boolean(parsed.data.id) ? undefined : false,
     auto_order_enabled: parsed.data.auto_order_enabled === "on",
     webhook_enabled: parsed.data.webhook_enabled === "on",
