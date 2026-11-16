@@ -19,12 +19,21 @@ type CjResponse<T> = {
   requestId?: string;
 };
 
+type CjInventoryArea = {
+  areaEn?: string;
+  areaId?: number | string;
+  countryCode?: string;
+  totalInventoryNum?: number;
+  cjInventoryNum?: number;
+  factoryInventoryNum?: number;
+  stock?: Array<{ stockId?: string; inventory?: number; factoryInventory?: number }> | null;
+};
+
 type CjVariant = {
   vid?: string;
   pid?: string;
   variantSku?: string;
   variantSellPrice?: number | string;
-  inventories?: Array<{ countryCode?: string; totalInventory?: number; cjInventory?: number; factoryInventory?: number }>;
 };
 
 const CJ_BASE = "https://developers.cjdropshipping.com/api2.0/v1";
@@ -141,19 +150,18 @@ function destinationCountry(orderContext: Record<string, unknown>): string {
 
 type CjProductQuery = {
   pid?: string;
-  vid?: string;
   productSku?: string;
   variantSku?: string;
-  variants?: CjVariant[];
+  vid?: string;
   variantNameEn?: string;
   variantImage?: string;
   variantSellPrice?: number | string;
+  variants?: CjVariant[];
 };
 
-async function fetchVariant(connection: AdapterConnection, accessToken: string, sku: string) {
-  // CJ's product query endpoint explicitly accepts a variantSku.
-  // The variant query endpoint is used for PID/SPU lookups on some API deployments
-  // and may reject a variantSku even though the public docs expose it as an option.
+async function fetchVariant(connection: AdapterConnection, accessToken: string, sku: string): Promise<CjVariant> {
+  // Product Details is the most reliable SKU lookup in CJ API 2.0. It accepts a
+  // variantSku directly and returns the matching variant fields plus the parent PID.
   const data = await cjFetch<CjProductQuery>(
     connection,
     "/product/query",
@@ -162,11 +170,30 @@ async function fetchVariant(connection: AdapterConnection, accessToken: string, 
     { variantSku: sku },
     accessToken,
   );
+
   const candidates = Array.isArray(data?.variants) ? data.variants : [];
-  const variant = candidates.find((row) => String(row.variantSku ?? "").toUpperCase() === sku.toUpperCase())
-    ?? (String(data?.variantSku ?? "").toUpperCase() === sku.toUpperCase() ? data : null);
+  const candidate = candidates.find(
+    (row) => String(row.variantSku ?? "").trim().toUpperCase() === sku.trim().toUpperCase(),
+  );
+
+  const direct: CjVariant | null =
+    data?.vid || data?.variantSku
+      ? {
+          vid: data.vid,
+          pid: data.pid,
+          variantSku: data.variantSku,
+          variantSellPrice: data.variantSellPrice,
+        }
+      : null;
+
+  const variant = candidate ?? direct;
   if (!variant?.vid) throw new Error("SKU CJ introuvable: " + sku);
-  return variant;
+
+  return {
+    ...variant,
+    pid: variant.pid ?? data.pid,
+    variantSku: variant.variantSku ?? sku,
+  };
 }
 
 async function testConnection(connection: AdapterConnection) {
@@ -193,29 +220,26 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
 
   for (const sku of uniqueSkus) {
     const variant = await fetchVariant(connection, token, sku);
-    const detailed = await cjFetch<CjVariant>(
+    const inventories = await cjFetch<CjInventoryArea[]>(
       connection,
-      "/product/variant/queryByVid",
+      "/product/stock/queryBySku",
       "GET",
       undefined,
-      { vid: variant.vid, features: "enable_inventory" },
+      { sku },
       token,
     );
-    const resolved = detailed?.vid ? detailed : variant;
-    const sourcePrice = parseMoney(resolved.variantSellPrice);
-    const inventories = Array.isArray(resolved.inventories) ? resolved.inventories : [];
-    const qty = inventories.reduce(
-      (sum, inventory) => sum + Math.max(0, Number(inventory.totalInventory ?? 0)),
+    const qty = (Array.isArray(inventories) ? inventories : []).reduce(
+      (sum, inventory) => sum + Math.max(0, Number(inventory.totalInventoryNum ?? 0)),
       0,
     );
     rawRows.push({
-      external_sku: String(resolved.variantSku ?? sku),
-      external_product_id: String(resolved.vid),
+      external_sku: String(variant.variantSku ?? sku),
+      external_product_id: String(variant.vid),
       supplier_qty: qty,
-      supplier_price_cents: sourcePrice,
+      supplier_price_cents: parseMoney(variant.variantSellPrice),
       supplier_currency: "USD",
       available: qty > 0,
-      raw: { variant: resolved, sku, inventories },
+      raw: { variant, sku, inventories },
     });
   }
 
