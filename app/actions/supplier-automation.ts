@@ -98,7 +98,7 @@ export async function saveSupplierConnection(form: FormData) {
     provider_capabilities: provider.capabilities,
     docs_url: provider.docsUrl,
     credentials_ciphertext: credentials.length ? encryptSupplierSecret(JSON.stringify(credentials)) : undefined,
-    base_url: parsed.data.base_url.replace(/\/+$/, ""),
+    base_url: parsed.data.base_url ? parsed.data.base_url.replace(/\/+$/, "") : null,
     enabled: Boolean(parsed.data.id) ? undefined : false,
     auto_order_enabled: parsed.data.auto_order_enabled === "on",
     webhook_enabled: parsed.data.webhook_enabled === "on",
