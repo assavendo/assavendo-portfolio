@@ -198,7 +198,7 @@ export async function checkSupplierOrderStatus(connectionId: string, externalOrd
   const endpointTemplate = typeof connection.config?.order_status_endpoint_template === "string" ? connection.config.order_status_endpoint_template : null;
   if (!endpointTemplate) throw new Error("Supplier status endpoint is not configured.");
   const path = String(renderTemplate(endpointTemplate, { ...context, external_order_id: externalOrderId }));
-  const url = safeEndpoint(connection.base_url, path);
+  const url = safeEndpoint(baseUrl, path);
   const raw = await requestJson(connection, url, "GET", {});
   return {
     external_status: connection.order_status_path ? stringValue(getByPath(raw, connection.order_status_path) ?? getByPath(raw, "status"), 120) : stringValue(getByPath(raw, "status"), 120),
