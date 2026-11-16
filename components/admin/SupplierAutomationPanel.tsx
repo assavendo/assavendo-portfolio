@@ -158,6 +158,10 @@ function ConnectionForm({ c }: { c?: Connection }) {
         <label><div className="saw-label">Base API HTTPS</div><input className="saw-input" name="base_url" defaultValue={c?.base_url ?? ""} placeholder="https://api.fournisseur.com" required={requiresRestMapping}/></label>
       ) : <div className="saw-help">Ce profil ne nécessite pas d’URL REST générique. La connexion dépend du protocole officiel du fournisseur.</div>}
       <label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label>
+      <label className="saw-check" style={{paddingTop:20}}>
+        <input type="checkbox" name="webhook_enabled" defaultChecked={Boolean(c?.webhook_enabled)}/>
+        <span>Activer les webhooks signés du fournisseur</span>
+      </label>
     </div>
 
     {provider.key === "cj_dropshipping" ? (

@@ -200,6 +200,9 @@ export async function saveSupplierConnection(form: FormData) {
 
   const requiresCredential = !["feed","managed_platform","directory"].includes(provider.integrationMode);
   if (requiresCredential && !primarySecret) throw new Error("Ajoutez le premier identifiant/secret demandé par le fournisseur pour créer la connexion.");
+  if (isCj && parsed.data.webhook_enabled === "on" && !cjCredentials?.openId) {
+    throw new Error("Un OpenId CJ est requis pour activer les webhooks signés.");
+  }
   if (isCj && !cjConfig.cj_logistic_name && parsed.data.auto_order_enabled === "on") throw new Error("Configurez le transporteur CJ avant d'activer les commandes automatiques.");
   if (isCj && parsed.data.auto_order_enabled === "on" && Number(cjConfig.cj_pay_type) !== 2) throw new Error("Les commandes CJ automatiques exigent le paiement par solde CJ (payType=2).");
   const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
