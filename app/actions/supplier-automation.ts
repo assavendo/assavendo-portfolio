@@ -100,7 +100,7 @@ export async function saveSupplierConnection(form: FormData) {
     credentials_ciphertext: credentials.length ? encryptSupplierSecret(JSON.stringify(credentials)) : undefined,
     base_url: parsed.data.base_url ? parsed.data.base_url.replace(/\/+$/, "") : null,
     enabled: Boolean(parsed.data.id) ? undefined : false,
-    auto_order_enabled: parsed.data.auto_order_enabled === "on",
+    auto_order_enabled: provider.integrationMode === "generic_rest" ? parsed.data.auto_order_enabled === "on" : false,
     webhook_enabled: parsed.data.webhook_enabled === "on",
     sync_interval_seconds: parsed.data.sync_interval_seconds,
     inventory_method: parsed.data.inventory_method,
@@ -140,7 +140,8 @@ export async function saveSupplierConnection(form: FormData) {
     return done("Connexion fournisseur mise à jour.");
   }
 
-  if (!primarySecret) throw new Error("Ajoutez le premier identifiant/secret demandé par le fournisseur pour créer la connexion.");
+  const requiresCredential = !["feed","managed_platform","directory"].includes(provider.integrationMode);
+  if (requiresCredential && !primarySecret) throw new Error("Ajoutez le premier identifiant/secret demandé par le fournisseur pour créer la connexion.");
   const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
   if (error || !data) throw new Error("Connexion fournisseur impossible : " + (error?.message ?? "inconnue"));
   return done("Connexion fournisseur créée. Testez-la avant d'activer la synchronisation.");
