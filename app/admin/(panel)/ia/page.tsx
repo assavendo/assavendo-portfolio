@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { PRESETS, ROLES } from "@/lib/ai/policy";
+import AiRequestForm from "@/components/admin/ai-request-form";
 import {
   addKey, askProduct, askResearch, keyAction, saveAgent
 } from "@/app/actions/ai";
@@ -62,7 +63,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     db.from("ai_incidents").select("*").in("status", ["open","acknowledged"]).order("started_at", { ascending: false }).limit(50),
     db.from("ai_runs").select("*").order("created_at", { ascending: false }).limit(40),
     db.from("ai_audit_logs").select("id,timestamp,actor_type,actor_id,action,resource_type,resource_id,policy_decision,result,error").order("created_at", { ascending: false }).limit(60),
-    db.from("ai_tasks").select("id,title,result,created_at").eq("kind","research_note").order("created_at", { ascending: false }).limit(3),
+    db.from("ai_tasks").select("id,title,result,created_at").eq("kind","research_note").eq("status","done").order("created_at", { ascending: false }).limit(3),
   ]);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -314,8 +315,18 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     <section className="panel">
       <h2 style={h2}>14. Agents existants · demandes et approbations historiques</h2>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:".8rem" }}>
-        <form action={askResearch} className="buy-form"><label className="field">Recherche produit / catalogue<textarea className="input" name="request" rows={3} maxLength={1500} placeholder="Ex. analyse des catégories qui manquent"/></label><button className="btn btn-ghost btn-sm">Lancer</button></form>
-        <form action={askProduct} className="buy-form"><label className="field">Nouvelle fiche produit<textarea className="input" name="request" rows={3} maxLength={1500} placeholder="Décrire la fiche à préparer"/></label><button className="btn btn-ghost btn-sm">Proposer</button></form>
+        <AiRequestForm
+          action={askResearch}
+          fieldLabel="Recherche produit / catalogue"
+          placeholder="Ex. analyse des catégories qui manquent"
+          buttonLabel="Lancer"
+        />
+        <AiRequestForm
+          action={askProduct}
+          fieldLabel="Nouvelle fiche produit"
+          placeholder="Décrire la fiche à préparer"
+          buttonLabel="Proposer"
+        />
       </div>
       {(notes ?? []).map((n) => <div key={n.id} className="panel"><p className="muted small">{n.title} · {fmt(n.created_at)}</p><p style={{ whiteSpace:"pre-wrap" }}>{String(n.result?.text ?? "")}</p></div>)}
     </section>
