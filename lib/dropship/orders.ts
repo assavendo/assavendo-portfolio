@@ -45,7 +45,7 @@ async function connectionMap(ids: string[]) {
 
 export async function queueSupplierOrders(orderId: string) {
   const db = supabaseAdmin();
-  const { data: order, error: orderError } = await db.from("orders").select("id,order_number,status,customer_email,shipping,billing,currency,amount_cents,subtotal_cents,fulfilment").eq("id", orderId).maybeSingle();
+  const { data: order, error: orderError } = await db.from("orders").select("id,order_number,created_at,status,customer_email,shipping,billing,currency,amount_cents,subtotal_cents,fulfilment").eq("id", orderId).maybeSingle();
   if (orderError || !order) throw new Error(orderError?.message || "Commande introuvable.");
   if (order.status !== "paid") return { queued: 0, needsReview: false };
   const { data: items, error: itemsError } = await db.from("order_items")
@@ -184,6 +184,7 @@ function orderContext(order: any, supplierItems: any[]) {
     order: {
       id: order.id,
       order_number: order.order_number,
+      created_at: order.created_at,
       currency: order.currency,
       amount_cents: order.amount_cents,
     },
