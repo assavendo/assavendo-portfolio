@@ -33,3 +33,13 @@ export function verifySupplierWebhook(body: string, signature: string, secret: s
   const received = Buffer.from(normalized, "utf8");
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
+
+export function signSupplierWebhookBase64(body: string, secret: string): string {
+  return createHmac("sha256", secret).update(body, "utf8").digest("base64");
+}
+
+export function verifySupplierWebhookBase64(body: string, signature: string, secret: string): boolean {
+  const expected = Buffer.from(signSupplierWebhookBase64(body, secret), "utf8");
+  const received = Buffer.from(signature.trim(), "utf8");
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
