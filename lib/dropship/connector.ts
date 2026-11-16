@@ -148,14 +148,16 @@ export async function fetchInventory(connectionId: string, context: Record<strin
     : {};
   const url = safeEndpoint(connection.base_url, connection.inventory_path, query);
   const payload = await requestJson(connection, url, connection.inventory_method, body);
-  const items = getByPath(payload, connection.inventory_response_path);
+  const { inventory_response_path, inventory_sku_path, inventory_qty_path, inventory_price_path, inventory_currency_path, inventory_available_path } = connection;
+  if (!inventory_response_path || !inventory_sku_path || !inventory_qty_path) throw new Error("Configuration REST fournisseur incomplète.");
+  const items = getByPath(payload, inventory_response_path);
   if (!Array.isArray(items)) throw new Error("Supplier inventory response path did not resolve to an array.");
   const records = items.slice(0, 5000).map((raw) => ({
-    external_sku: stringValue(getByPath(raw, connection.inventory_sku_path), 160) ?? "",
-    supplier_qty: integerValue(getByPath(raw, connection.inventory_qty_path)),
-    supplier_price_cents: connection.inventory_price_path ? priceCents(getByPath(raw, connection.inventory_price_path)) : null,
-    supplier_currency: connection.inventory_currency_path ? stringValue(getByPath(raw, connection.inventory_currency_path), 8)?.toLowerCase() ?? null : null,
-    available: connection.inventory_available_path ? booleanValue(getByPath(raw, connection.inventory_available_path)) : null,
+    external_sku: stringValue(getByPath(raw, inventory_sku_path), 160) ?? "",
+    supplier_qty: integerValue(getByPath(raw, inventory_qty_path)),
+    supplier_price_cents: inventory_price_path ? priceCents(getByPath(raw, inventory_price_path)) : null,
+    supplier_currency: inventory_currency_path ? stringValue(getByPath(raw, inventory_currency_path), 8)?.toLowerCase() ?? null : null,
+    available: inventory_available_path ? booleanValue(getByPath(raw, inventory_available_path)) : null,
     raw,
   })).filter((record) => record.external_sku.length > 0);
   return { connection, records };
@@ -193,10 +195,12 @@ export async function checkSupplierOrderStatus(connectionId: string, externalOrd
   raw: unknown;
 }> {
   const connection = await getConnection(connectionId);
+  const baseUrl = connection.base_url;
+  if (!baseUrl) throw new Error("Configuration REST fournisseur incomplète.");
   const endpointTemplate = typeof connection.config?.order_status_endpoint_template === "string" ? connection.config.order_status_endpoint_template : null;
   if (!endpointTemplate) throw new Error("Supplier status endpoint is not configured.");
   const path = String(renderTemplate(endpointTemplate, { ...context, external_order_id: externalOrderId }));
-  const url = safeEndpoint(connection.base_url, path);
+  const url = safeEndpoint(baseUrl, path);
   const raw = await requestJson(connection, url, "GET", {});
   return {
     external_status: connection.order_status_path ? stringValue(getByPath(raw, connection.order_status_path) ?? getByPath(raw, "status"), 120) : stringValue(getByPath(raw, "status"), 120),
