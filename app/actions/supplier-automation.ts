@@ -11,6 +11,8 @@ import { fetchInventory } from "@/lib/dropship/connector";
 import { dispatchSupplierOrders } from "@/lib/dropship/orders";
 import { syncSupplierConnection } from "@/lib/dropship/sync";
 import { getSupplierProvider } from "@/lib/dropship/providers";
+import { getSupplierAdapter } from "@/lib/dropship/adapters";
+import { loadSupplierConnection } from "@/lib/dropship/connector";
 
 const connectionSchema = z.object({
   id: z.string().uuid().optional().or(z.literal("")),
@@ -183,7 +185,18 @@ export async function toggleSupplierConnection(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
   const enabled = String(form.get("enabled") ?? "") === "true";
-  const { error } = await supabaseAdmin().from("supplier_connections").update({ enabled, status: enabled ? "degraded" : "disabled" }).eq("id", id);
+  const db = supabaseAdmin();
+  const { data: connection, error: readError } = await db.from("supplier_connections")
+    .select("status,adapter")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !connection) throw new Error("Connexion fournisseur introuvable.");
+  if (enabled && connection.adapter && connection.status !== "healthy") {
+    throw new Error("Testez et validez le connecteur avant son activation.");
+  }
+  const { error } = await db.from("supplier_connections")
+    .update({ enabled, status: enabled ? "healthy" : "disabled" })
+    .eq("id", id);
   if (error) throw new Error("Impossible de modifier l'état du connecteur : " + error.message);
   return done(enabled ? "Connecteur activé." : "Connecteur désactivé.");
 }
@@ -192,6 +205,17 @@ export async function testSupplierConnection(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
   try {
+    const connection = await loadSupplierConnection(id);
+    const adapter = getSupplierAdapter(connection.adapter);
+    if (adapter) {
+      const result = await adapter.testConnection(connection as never);
+      await supabaseAdmin().from("supplier_connections").update({
+        status: "healthy",
+        last_success_at: new Date().toISOString(),
+        last_error: null,
+      }).eq("id", id);
+      return done("Test réussi : " + (result.detail ?? "fournisseur connecté."));
+    }
     const result = await fetchInventory(id, { test: true, timestamp: new Date().toISOString() });
     await supabaseAdmin().from("supplier_connections").update({ status: "healthy", last_success_at: new Date().toISOString(), last_error: null }).eq("id", id);
     return done("Test réussi : " + result.records.length + " référence(s) fournisseur lue(s).");
