@@ -45,8 +45,7 @@ from public.order_items oi
 join public.orders o on o.id = oi.order_id
 where oi.title = 'Casque de test'
   and o.customer_email = 'pay@exemple.fr'
-  and o.status = 'paid'
-order by o.paid_at desc nulls last, oi.id
+order by o.created_at desc, oi.id
 limit 1;
 
 do $$
@@ -106,8 +105,7 @@ from public.order_items oi
 join public.orders o on o.id = oi.order_id
 where oi.title = 'Casque de test'
   and o.customer_email = 'pay@exemple.fr'
-  and o.status = 'paid'
-order by o.paid_at desc nulls last, oi.id
+order by o.created_at desc, oi.id
 limit 1;
 
 -- campagne post-achat : invitation créée au paiement et activée après livraison physique
