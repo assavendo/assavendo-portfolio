@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 
 export type SupplierImage = { url: string; alt: string; kind: "source" };
+export type SupplierVariant = {
+  label: string;
+  sku: string;
+  options: Record<string, string>;
+  supplier_price: number | null;
+  availability: string;
+};
 export type SupplierProduct = {
   page_title: string;
   product_name: string;
@@ -93,6 +100,65 @@ function imageList(candidates: string[], base: URL): SupplierImage[] {
   return out;
 }
 
+
+function offerOf(value: unknown): Record<string, unknown> {
+  const offers = Array.isArray(value) ? value[0] : value;
+  return offers && typeof offers === "object" ? offers as Record<string, unknown> : {};
+}
+
+function priceOf(value: unknown): number | null {
+  const offers = offerOf(value);
+  const raw = offers.price ?? offers.lowPrice;
+  if (raw === undefined || raw === null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 10_000_000 ? n : null;
+}
+
+function variantOptions(v: Record<string, unknown>): Record<string, string> {
+  const keys = ["color", "size", "material", "pattern", "style", "flavor", "capacity", "finish"];
+  const out: Record<string, string> = {};
+  for (const key of keys) {
+    const value = valueText(v[key], 80);
+    if (value) out[key] = value;
+  }
+  const properties = Array.isArray(v.additionalProperty) ? v.additionalProperty : [];
+  for (const property of properties.slice(0, 12)) {
+    if (!property || typeof property !== "object") continue;
+    const p = property as Record<string, unknown>;
+    const name = valueText(p.name, 60).toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+    const value = valueText(p.value ?? p.valueReference, 80);
+    if (name && value && !out[name]) out[name] = value;
+  }
+  return out;
+}
+
+function variantList(value: unknown): SupplierVariant[] {
+  if (!Array.isArray(value)) return [];
+  const out: SupplierVariant[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.slice(0, 50)) {
+    if (!raw || typeof raw !== "object") continue;
+    const v = raw as Record<string, unknown>;
+    const types = Array.isArray(v["@type"]) ? v["@type"] : [v["@type"]];
+    if (!types.some((x) => typeof x === "string" && x.toLowerCase().includes("product"))) continue;
+    const label = valueText(v.name, 160);
+    const sku = valueText(v.sku, 100);
+    const options = variantOptions(v);
+    const key = sku || label || JSON.stringify(options);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const offer = offerOf(v.offers);
+    out.push({
+      label: label || Object.values(options).join(" · ") || "Variante",
+      sku,
+      options,
+      supplier_price: priceOf(v.offers),
+      availability: valueText(offer.availability, 120),
+    });
+  }
+  return out.slice(0, 40);
+}
+
 /** Extrait seulement des métadonnées et JSON-LD bornés; le HTML et les scripts ne sont jamais exécutés. */
 export function extractSupplierProduct(html: string, pageUrl: string, requestedName: string): SupplierProduct {
   const page = new URL(pageUrl);
@@ -104,11 +170,8 @@ export function extractSupplierProduct(html: string, pageUrl: string, requestedN
   }
   const product = products[0] ?? {};
   const titleTag = clean(html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1] ?? "", 300);
-  const offerValue = Array.isArray(product.offers) ? product.offers[0] : product.offers;
-  const offer = offerValue && typeof offerValue === "object" ? offerValue as Record<string, unknown> : {};
-  const priceValue = offer.price ?? offer.lowPrice;
-  const rawPrice = priceValue === undefined || priceValue === null || String(priceValue).trim() === "" ? Number.NaN : Number(priceValue);
-  const price = Number.isFinite(rawPrice) && rawPrice >= 0 && rawPrice <= 10_000_000 ? rawPrice : null;
+  const offer = offerOf(product.offers);
+  const price = priceOf(product.offers);
   const brand = valueText(product.brand, 120) || meta(html, ["product:brand"]);
   const rawImages = [
     ...imageUrls(product.image),
@@ -125,6 +188,7 @@ export function extractSupplierProduct(html: string, pageUrl: string, requestedN
     currency: valueText(offer.priceCurrency, 3).toUpperCase(),
     availability: valueText(offer.availability, 120),
     images: imageList(rawImages, page),
+    variants: variantList(product.hasVariant),
     content_sha256: createHash("sha256").update(html).digest("hex"),
   };
 }
