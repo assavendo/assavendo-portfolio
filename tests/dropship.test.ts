@@ -47,3 +47,13 @@ test("nettoie les entités et caractères de contrôle", () => {
   assert.equal(safeSupplierText(" <b>texte</b> &quot;ok&quot;\u0000 ", 40), 'texte "ok"');
   assert.equal(safeSupplierText("x".repeat(20), 5), "xxxxx");
 });
+
+test("extrait les variantes structurées sans confondre leur prix fournisseur avec le prix de vente", () => {
+  const html = `<script type="application/ld+json">{"@type":"Product","name":"T-shirt","hasVariant":[{"@type":"Product","name":"T-shirt noir M","sku":"TS-BLK-M","color":"Noir","size":"M","offers":{"price":"19.90","availability":"https://schema.org/InStock"}},{"@type":"Product","name":"T-shirt blanc L","sku":"TS-WHT-L","color":"Blanc","size":"L","offers":{"price":"20.90","availability":"https://schema.org/OutOfStock"}}]}</script>`;
+  const result = extractSupplierProduct(html, url, "T-shirt");
+  assert.equal(result.supplier_price, null);
+  assert.equal(result.variants.length, 2);
+  assert.deepEqual(result.variants[0].options, { color: "Noir", size: "M" });
+  assert.equal(result.variants[0].supplier_price, 19.9);
+  assert.equal(result.variants[1].availability, "https://schema.org/OutOfStock");
+});
