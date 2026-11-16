@@ -25,7 +25,7 @@ export default function AiRequestForm({ action, fieldLabel, placeholder, buttonL
 
   return (
     <form action={action} onSubmit={handleSubmit} className="buy-form" aria-busy={pending}>
-      <input type="hidden" name="submission_id" value={submissionId.current} />
+      <input type="hidden" name="submission_id" value={submissionId} />
       <label className="field">
         {fieldLabel}
         <textarea
