@@ -195,6 +195,8 @@ export async function checkSupplierOrderStatus(connectionId: string, externalOrd
   raw: unknown;
 }> {
   const connection = await getConnection(connectionId);
+  const baseUrl = connection.base_url;
+  if (!baseUrl) throw new Error("Configuration REST fournisseur incomplète.");
   const endpointTemplate = typeof connection.config?.order_status_endpoint_template === "string" ? connection.config.order_status_endpoint_template : null;
   if (!endpointTemplate) throw new Error("Supplier status endpoint is not configured.");
   const path = String(renderTemplate(endpointTemplate, { ...context, external_order_id: externalOrderId }));
