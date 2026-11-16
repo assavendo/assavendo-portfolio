@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { getByPath, renderTemplate } from "./template";
+import { renderTemplate } from "./template";
+export { getByPath } from "./template";
 
 import { decryptSupplierSecret } from "./crypto";
 
@@ -92,22 +93,6 @@ function safeEndpoint(baseUrl: string, path: string, params?: Record<string, unk
   if (url.origin !== base.origin) throw new Error("Supplier endpoint changed origin.");
   if (params) for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && String(value) !== "") url.searchParams.set(key, String(value));
   return url;
-}
-
-export function renderTemplate(value: unknown, context: Record<string, unknown>): unknown {
-  if (typeof value === "string") {
-    const pure = value.match(/^\{\{\s*([^}]+?)\s*\}\}$/);
-    if (pure) return getByPath(context, pure[1].trim());
-    return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, path: string) => {
-      const resolved = getByPath(context, path.trim());
-      return resolved === null || resolved === undefined ? "" : typeof resolved === "object" ? JSON.stringify(resolved) : String(resolved);
-    });
-  }
-  if (Array.isArray(value)) return value.map((entry) => renderTemplate(entry, context));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, renderTemplate(entry, context)]));
-  }
-  return value;
 }
 
 async function getConnection(id: string): Promise<Connection> {
