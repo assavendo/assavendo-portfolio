@@ -69,6 +69,6 @@ select pg_temp.assert(
   'RLS fournisseur activée'
 );
 select pg_temp.assert(
-  (select row_security from pg_catalog.pg_tables where schemaname = 'public' and tablename = 'supplier_orders'),
+  (select rowsecurity from pg_catalog.pg_tables where schemaname = 'public' and tablename = 'supplier_orders'),
   'RLS commandes fournisseur activée'
 );
