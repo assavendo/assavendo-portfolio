@@ -139,18 +139,31 @@ function destinationCountry(orderContext: Record<string, unknown>): string {
   return String(shipping.countryCode ?? shipping.country ?? "").trim().toUpperCase();
 }
 
+type CjProductQuery = {
+  pid?: string;
+  productSku?: string;
+  variantSku?: string;
+  variants?: CjVariant[];
+  variantNameEn?: string;
+  variantImage?: string;
+  variantSellPrice?: number | string;
+};
+
 async function fetchVariant(connection: AdapterConnection, accessToken: string, sku: string) {
-  const rows = await cjFetch<CjVariant[]>(
+  // CJ's product query endpoint explicitly accepts a variantSku.
+  // The variant query endpoint is used for PID/SPU lookups on some API deployments
+  // and may reject a variantSku even though the public docs expose it as an option.
+  const data = await cjFetch<CjProductQuery>(
     connection,
-    "/product/variant/query",
+    "/product/query",
     "GET",
     undefined,
     { variantSku: sku },
     accessToken,
   );
-  const variant = Array.isArray(rows)
-    ? rows.find((row) => String(row.variantSku ?? "").toUpperCase() === sku.toUpperCase()) ?? rows[0]
-    : null;
+  const candidates = Array.isArray(data?.variants) ? data.variants : [];
+  const variant = candidates.find((row) => String(row.variantSku ?? "").toUpperCase() === sku.toUpperCase())
+    ?? (String(data?.variantSku ?? "").toUpperCase() === sku.toUpperCase() ? data : null);
   if (!variant?.vid) throw new Error("SKU CJ introuvable: " + sku);
   return variant;
 }
