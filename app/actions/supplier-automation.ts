@@ -106,7 +106,10 @@ export async function saveSupplierConnection(form: FormData) {
     openId: parsed.data.credential_4 || undefined,
   } : null;
   const genericCredentials = [parsed.data.credential_1, parsed.data.credential_2, parsed.data.credential_3, parsed.data.credential_4].filter(Boolean);
-  const credentialBundle = isCj ? cjCredentials : genericCredentials.length ? { credentials: genericCredentials } : null;
+  const hasCjCredentials = Boolean(cjCredentials && Object.values(cjCredentials).some(Boolean));
+  const credentialBundle = isCj
+    ? (hasCjCredentials ? cjCredentials : null)
+    : (genericCredentials.length ? { credentials: genericCredentials } : null);
   const primarySecret = isCj
     ? (parsed.data.credential_2 || parsed.data.credential_1 || "")
     : (parsed.data.credential_1 || parsed.data.api_secret || "");
