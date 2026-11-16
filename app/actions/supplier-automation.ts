@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { randomBytes } from "node:crypto";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { encryptSupplierSecret } from "@/lib/dropship/crypto";
+import { decryptSupplierSecret, encryptSupplierSecret } from "@/lib/dropship/crypto";
 import { fetchInventory } from "@/lib/dropship/connector";
 import { dispatchSupplierOrders } from "@/lib/dropship/orders";
 import { syncSupplierConnection } from "@/lib/dropship/sync";
@@ -99,11 +99,31 @@ export async function saveSupplierConnection(form: FormData) {
     if (!parsed.data.inventory_path || !parsed.data.inventory_response_path || !parsed.data.inventory_sku_path || !parsed.data.inventory_qty_path || !parsed.data.order_path) throw new Error("Complétez les endpoints REST d’inventaire et de commande pour le connecteur personnalisé.");
   }
   const isCj = provider.key === "cj_dropshipping";
+  let existingCjCredentials: Record<string, unknown> = {};
+  let existingCjConfig: Record<string, unknown> = {};
+  if (isCj && parsed.data.id) {
+    const { data: existingConnection, error: existingError } = await db
+      .from("supplier_connections")
+      .select("credentials_ciphertext,config")
+      .eq("id", parsed.data.id)
+      .maybeSingle();
+    if (existingError) throw new Error("Impossible de lire la connexion CJ existante.");
+    try {
+      const raw = existingConnection?.credentials_ciphertext ? decryptSupplierSecret(existingConnection.credentials_ciphertext) : null;
+      existingCjCredentials = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    } catch {
+      throw new Error("Les identifiants CJ existants sont invalides.");
+    }
+    existingCjConfig = existingConnection?.config && typeof existingConnection.config === "object"
+      ? existingConnection.config as Record<string, unknown>
+      : {};
+  }
   const cjCredentials = isCj ? {
-    apiKey: parsed.data.credential_1 || undefined,
-    accessToken: parsed.data.credential_2 || undefined,
-    refreshToken: parsed.data.credential_3 || undefined,
-    openId: parsed.data.credential_4 || undefined,
+    ...existingCjCredentials,
+    ...(parsed.data.credential_1 ? { apiKey: parsed.data.credential_1 } : {}),
+    ...(parsed.data.credential_2 ? { accessToken: parsed.data.credential_2 } : {}),
+    ...(parsed.data.credential_3 ? { refreshToken: parsed.data.credential_3 } : {}),
+    ...(parsed.data.credential_4 ? { openId: parsed.data.credential_4 } : {}),
   } : null;
   const genericCredentials = [parsed.data.credential_1, parsed.data.credential_2, parsed.data.credential_3, parsed.data.credential_4].filter(Boolean);
   const hasCjCredentials = Boolean(cjCredentials && Object.values(cjCredentials).some(Boolean));
@@ -111,17 +131,18 @@ export async function saveSupplierConnection(form: FormData) {
     ? (hasCjCredentials ? cjCredentials : null)
     : (genericCredentials.length ? { credentials: genericCredentials } : null);
   const primarySecret = isCj
-    ? (parsed.data.credential_2 || parsed.data.credential_1 || "")
+    ? String(cjCredentials?.accessToken ?? cjCredentials?.apiKey ?? "")
     : (parsed.data.credential_1 || parsed.data.api_secret || "");
-  const cjConfig = isCj ? {
+  const cjConfig: Record<string, unknown> = isCj ? {
+    ...existingCjConfig,
     base_currency: "EUR",
-    cj_logistic_name: parsed.data.cj_logistic_name || null,
-    cj_from_country_code: (parsed.data.cj_from_country_code || "CN").toUpperCase(),
-    cj_shop_logistics_type: parsed.data.cj_shop_logistics_type ?? 3,
-    cj_platform: parsed.data.cj_platform || "Api",
-    cj_store_name: parsed.data.cj_store_name || null,
-    cj_pay_type: parsed.data.cj_pay_type ?? 2,
-    cj_referer: parsed.data.cj_referer || null,
+    cj_logistic_name: parsed.data.cj_logistic_name || existingCjConfig.cj_logistic_name || null,
+    cj_from_country_code: (parsed.data.cj_from_country_code || String(existingCjConfig.cj_from_country_code ?? "CN")).toUpperCase(),
+    cj_shop_logistics_type: parsed.data.cj_shop_logistics_type ?? Number(existingCjConfig.cj_shop_logistics_type ?? 2),
+    cj_platform: parsed.data.cj_platform || String(existingCjConfig.cj_platform ?? "Api"),
+    cj_store_name: parsed.data.cj_store_name || existingCjConfig.cj_store_name || null,
+    cj_pay_type: parsed.data.cj_pay_type ?? Number(existingCjConfig.cj_pay_type ?? 2),
+    cj_referer: parsed.data.cj_referer || existingCjConfig.cj_referer || null,
   } : {};
   const row = {
     name: parsed.data.name,
@@ -179,7 +200,8 @@ export async function saveSupplierConnection(form: FormData) {
 
   const requiresCredential = !["feed","managed_platform","directory"].includes(provider.integrationMode);
   if (requiresCredential && !primarySecret) throw new Error("Ajoutez le premier identifiant/secret demandé par le fournisseur pour créer la connexion.");
-  if (isCj && !parsed.data.cj_logistic_name && parsed.data.auto_order_enabled === "on") throw new Error("Configurez le transporteur CJ avant d'activer les commandes automatiques.");
+  if (isCj && !cjConfig.cj_logistic_name && parsed.data.auto_order_enabled === "on") throw new Error("Configurez le transporteur CJ avant d'activer les commandes automatiques.");
+  if (isCj && parsed.data.auto_order_enabled === "on" && Number(cjConfig.cj_pay_type) !== 2) throw new Error("Les commandes CJ automatiques exigent le paiement par solde CJ (payType=2).");
   const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
   if (error || !data) throw new Error("Connexion fournisseur impossible : " + (error?.message ?? "inconnue"));
   return done("Connexion fournisseur créée. Testez-la avant d'activer la synchronisation.");

@@ -1,5 +1,5 @@
 import type { SupplierAdapter } from "./types";
-import { cjAdapter } from "./cj";
+import { cjAdapter } from "./cj.ts";
 
 const adapters = new Map<string, SupplierAdapter>([
   ["cj", cjAdapter],
