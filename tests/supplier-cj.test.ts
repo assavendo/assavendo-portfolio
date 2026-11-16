@@ -32,10 +32,11 @@ function connection(credentials: Record<string, unknown>): AdapterConnection {
 }
 
 test("CJ webhook signatures use raw-body HMAC-SHA256 Base64", () => {
-  const body = JSON.stringify({ messageId: "evt-1", type: "ORDER_STATUS" });
-  const signature = signSupplierWebhookBase64(body, "open-id-secret");
-  assert.equal(verifySupplierWebhookBase64(body, signature, "open-id-secret"), true);
-  assert.equal(verifySupplierWebhookBase64(body + " ", signature, "open-id-secret"), false);
+  const body = '{"messageId":"123111","messageType":"INSERT","params":"123","type":"PRODUCT"}';
+  const signature = signSupplierWebhookBase64(body, "123");
+  assert.equal(signature, "AHxoGFMoS/4mZfJ5vFes5//Pz2QibFQhh3GlrTtnWpk=");
+  assert.equal(verifySupplierWebhookBase64(body, signature, "123"), true);
+  assert.equal(verifySupplierWebhookBase64(body + " ", signature, "123"), false);
 });
 
 test("CJ inventory adapter resolves mapped SKUs and keeps source USD price", async () => {
@@ -95,6 +96,7 @@ test("CJ order creation reconciles an ambiguous failure by orderNumber", async (
   let createCalls = 0;
   let listCalls = 0;
   let capturedCreateBody: Record<string, unknown> | null = null;
+  let listUrl = "";
 
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -107,6 +109,7 @@ test("CJ order creation reconciles an ambiguous failure by orderNumber", async (
 
     if (url.includes("/shopping/order/list?")) {
       listCalls += 1;
+      listUrl = url;
       return new Response(JSON.stringify({
         code: 200,
         success: true,
@@ -160,6 +163,9 @@ test("CJ order creation reconciles an ambiguous failure by orderNumber", async (
     assert.equal(listCalls, 1);
     assert.equal(result.external_order_id, "CJ-ORDER-123");
     assert.equal(result.external_status, "UNSHIPPED");
+    const search = new URL(listUrl).searchParams;
+    assert.equal(Number.isInteger(Number(search.get("createDateFrom"))), true);
+    assert.equal(Number.isInteger(Number(search.get("createDateTo"))), true);
     assert.equal((capturedCreateBody as any)?.orderNumber, "AV-000123");
     assert.equal((capturedCreateBody as any)?.payType, 2);
     assert.equal((capturedCreateBody as any)?.isSandbox, 1);
