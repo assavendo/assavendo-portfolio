@@ -128,6 +128,11 @@ function parseMoney(value: unknown): number | null {
   return Number.isFinite(amount) ? Math.round(amount * 100) : null;
 }
 
+function configString(connection: AdapterConnection, key: string, fallback = ""): string {
+  const value = connection.config?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
 async function fetchVariant(connection: AdapterConnection, accessToken: string, sku: string) {
   const rows = await cjFetch<CjVariant[]>(
     connection,
