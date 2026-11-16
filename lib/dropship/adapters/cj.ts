@@ -292,11 +292,12 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
     orderFlow: 1,
     products: items.map((item) => {
       const variantId = String(item.external_variant_id ?? "").trim();
-      const productId = String(item.external_product_id ?? "").trim();
       const sku = String(item.sku ?? "").trim();
+      if (!variantId) {
+        throw new Error("VID CJ manquant pour le SKU " + (sku || "inconnu") + ". Synchronisez le mapping fournisseur avant toute commande.");
+      }
       return {
-        ...(variantId ? { vid: variantId } : {}),
-        ...(productId ? { pid: productId } : {}),
+        vid: variantId,
         ...(sku ? { sku } : {}),
         quantity: Number(item.quantity ?? 0),
         storeLineItemId: String(item.store_line_item_id ?? item.id ?? ""),
