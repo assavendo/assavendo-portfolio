@@ -1,0 +1,216 @@
+"use server";
+
+import { z } from "zod";
+import { revalidatePath } from "next/cache";
+import { randomBytes } from "node:crypto";
+import { requireAdmin } from "@/lib/admin";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import { encryptSupplierSecret } from "@/lib/dropship/crypto";
+import { fetchInventory } from "@/lib/dropship/connector";
+import { dispatchSupplierOrders, queueSupplierOrders } from "@/lib/dropship/orders";
+import { syncSupplierConnection } from "@/lib/dropship/sync";
+
+const connectionSchema = z.object({
+  id: z.string().uuid().optional().or(z.literal("")),
+  name: z.string().trim().min(2).max(120),
+  base_url: z.string().trim().url().refine((v) => v.startsWith("https://"), "Le fournisseur doit utiliser HTTPS."),
+  inventory_method: z.enum(["GET","POST"]),
+  inventory_path: z.string().trim().startsWith("/").max(300),
+  inventory_response_path: z.string().trim().max(200),
+  inventory_sku_path: z.string().trim().max(200),
+  inventory_qty_path: z.string().trim().max(200),
+  inventory_price_path: z.string().trim().max(200).optional().or(z.literal("")),
+  inventory_currency_path: z.string().trim().max(200).optional().or(z.literal("")),
+  inventory_available_path: z.string().trim().max(200).optional().or(z.literal("")),
+  order_method: z.enum(["POST","PUT"]),
+  order_path: z.string().trim().startsWith("/").max(300),
+  order_response_id_path: z.string().trim().max(200).optional().or(z.literal("")),
+  order_status_path: z.string().trim().max(200).optional().or(z.literal("")),
+  order_tracking_number_path: z.string().trim().max(200).optional().or(z.literal("")),
+  order_tracking_url_path: z.string().trim().max(300).optional().or(z.literal("")),
+  order_status_endpoint_template: z.string().trim().max(300).optional().or(z.literal("")),
+  order_payload_template: z.string().trim().min(2).max(12000),
+  auth_header: z.string().trim().min(2).max(100),
+  auth_prefix: z.string().trim().max(60),
+  api_secret: z.string().max(8000).optional().or(z.literal("")),
+  webhook_secret: z.string().max(8000).optional().or(z.literal("")),
+  sync_interval_seconds: z.coerce.number().int().min(60).max(86400),
+  auto_order_enabled: z.string().optional(),
+  webhook_enabled: z.string().optional(),
+  max_supplier_order_cents: z.coerce.number().int().min(50).max(10_000_000),
+});
+
+const mappingSchema = z.object({
+  id: z.string().uuid().optional().or(z.literal("")),
+  supplier_connection_id: z.string().uuid(),
+  product_id: z.string().uuid(),
+  variant_id: z.string().uuid().optional().or(z.literal("")),
+  external_sku: z.string().trim().min(1).max(160),
+  auto_reprice: z.string().optional(),
+  reprice_mode: z.enum(["cost_only","cost_plus_margin","cost_plus_markup","supplier_price"]),
+  margin_bps: z.coerce.number().int().min(0).max(9000),
+  markup_cents: z.coerce.number().int().min(0).max(10_000_000),
+  min_retail_cents: z.coerce.number().int().min(50).max(10_000_000),
+  max_retail_cents: z.coerce.number().int().min(0).max(100_000_000).optional(),
+});
+
+function done(message: string) {
+  revalidatePath("/admin/dropshipping");
+  return message;
+}
+
+function parseTemplate(value: string) {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Le template JSON doit être un objet.");
+  return parsed;
+}
+
+export async function saveSupplierConnection(form: FormData) {
+  const { user } = await requireAdmin();
+  const parsed = connectionSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Configuration fournisseur invalide.");
+  let template: unknown;
+  try { template = parseTemplate(parsed.data.order_payload_template); } catch (error) { throw new Error(error instanceof Error ? error.message : "Template JSON invalide."); }
+
+  const db = supabaseAdmin();
+  const row = {
+    name: parsed.data.name,
+    adapter: "generic_rest",
+    base_url: parsed.data.base_url.replace(//+$/, ""),
+    enabled: Boolean(parsed.data.id) ? undefined : false,
+    auto_order_enabled: parsed.data.auto_order_enabled === "on",
+    webhook_enabled: parsed.data.webhook_enabled === "on",
+    sync_interval_seconds: parsed.data.sync_interval_seconds,
+    inventory_method: parsed.data.inventory_method,
+    inventory_path: parsed.data.inventory_path,
+    inventory_response_path: parsed.data.inventory_response_path,
+    inventory_sku_path: parsed.data.inventory_sku_path,
+    inventory_qty_path: parsed.data.inventory_qty_path,
+    inventory_price_path: parsed.data.inventory_price_path || null,
+    inventory_currency_path: parsed.data.inventory_currency_path || null,
+    inventory_available_path: parsed.data.inventory_available_path || null,
+    order_method: parsed.data.order_method,
+    order_path: parsed.data.order_path,
+    order_response_id_path: parsed.data.order_response_id_path || null,
+    order_status_path: parsed.data.order_status_path || null,
+    order_tracking_number_path: parsed.data.order_tracking_number_path || null,
+    order_tracking_url_path: parsed.data.order_tracking_url_path || null,
+    order_payload_template: template,
+    auth_header: parsed.data.auth_header,
+    auth_prefix: parsed.data.auth_prefix,
+    secret_ciphertext: parsed.data.api_secret ? encryptSupplierSecret(parsed.data.api_secret) : undefined,
+    webhook_secret_ciphertext: parsed.data.webhook_secret ? encryptSupplierSecret(parsed.data.webhook_secret) : undefined,
+    config: {
+      max_supplier_order_cents: parsed.data.max_supplier_order_cents,
+      order_status_endpoint_template: parsed.data.order_status_endpoint_template || null,
+      order_external_id_path: parsed.data.order_response_id_path || null,
+      order_response_status_path: parsed.data.order_status_path || null,
+      order_response_tracking_number_path: parsed.data.order_tracking_number_path || null,
+      order_response_tracking_url_path: parsed.data.order_tracking_url_path || null,
+    },
+    created_by: user.id,
+  };
+
+  if (parsed.data.id) {
+    const update = Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined));
+    const { error } = await db.from("supplier_connections").update(update).eq("id", parsed.data.id);
+    if (error) throw new Error("Connexion fournisseur non enregistrée : " + error.message);
+    return done("Connexion fournisseur mise à jour.");
+  }
+
+  if (!parsed.data.api_secret) throw new Error("Ajoutez le secret API du fournisseur pour créer une connexion active.");
+  const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
+  if (error || !data) throw new Error("Connexion fournisseur impossible : " + (error?.message ?? "inconnue"));
+  return done("Connexion fournisseur créée. Testez-la avant d'activer la synchronisation.");
+}
+
+export async function toggleSupplierConnection(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const enabled = String(form.get("enabled") ?? "") === "true";
+  const { error } = await supabaseAdmin().from("supplier_connections").update({ enabled, status: enabled ? "degraded" : "disabled" }).eq("id", id);
+  if (error) throw new Error("Impossible de modifier l'état du connecteur : " + error.message);
+  return done(enabled ? "Connecteur activé." : "Connecteur désactivé.");
+}
+
+export async function testSupplierConnection(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  try {
+    const result = await fetchInventory(id, { test: true, timestamp: new Date().toISOString() });
+    await supabaseAdmin().from("supplier_connections").update({ status: "healthy", last_success_at: new Date().toISOString(), last_error: null }).eq("id", id);
+    return done("Test réussi : " + result.records.length + " référence(s) fournisseur lue(s).");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Échec du test fournisseur.";
+    await supabaseAdmin().from("supplier_connections").update({ status: "degraded", last_error: message.slice(0,1000) }).eq("id", id);
+    throw new Error("Test fournisseur échoué : " + message);
+  }
+}
+
+export async function syncSupplierNow(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const result = await syncSupplierConnection(id, "manual");
+  return done(`Synchronisation terminée : ${result.applied} référence(s) appliquée(s), ${result.changed} changement(s).`);
+}
+
+export async function saveSupplierMapping(form: FormData) {
+  await requireAdmin();
+  const parsed = mappingSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Mapping fournisseur invalide.");
+  const d = parsed.data;
+  const db = supabaseAdmin();
+  const { data: product } = await db.from("products").select("id,kind,status").eq("id", d.product_id).maybeSingle();
+  if (!product || product.kind !== "physical" || product.status !== "published") throw new Error("Le mapping doit cibler un produit physique publié.");
+
+  const variantId = d.variant_id || null;
+  if (variantId) {
+    const { data: variant } = await db.from("product_variants").select("id,product_id").eq("id", variantId).maybeSingle();
+    if (!variant || variant.product_id !== d.product_id) throw new Error("La variante choisie n'appartient pas au produit.");
+  }
+
+  const row = {
+    supplier_connection_id: d.supplier_connection_id,
+    product_id: d.product_id,
+    variant_id: variantId,
+    external_sku: d.external_sku,
+    enabled: true,
+    auto_reprice: d.auto_reprice === "on",
+    reprice_mode: d.reprice_mode,
+    margin_bps: d.margin_bps,
+    markup_cents: d.markup_cents,
+    min_retail_cents: d.min_retail_cents,
+    max_retail_cents: d.max_retail_cents || null,
+  };
+
+  if (d.id) {
+    const { error } = await db.from("product_supplier_mappings").update(row).eq("id", d.id);
+    if (error) throw new Error("Mapping non enregistré : " + error.message);
+  } else {
+    const { error } = await db.from("product_supplier_mappings").insert(row);
+    if (error) throw new Error(error.code === "23505" ? "Ce SKU fournisseur est déjà mappé à ce connecteur." : "Mapping impossible : " + error.message);
+  }
+  return done("Mapping fournisseur enregistré.");
+}
+
+export async function deleteSupplierMapping(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const { error } = await supabaseAdmin().from("product_supplier_mappings").delete().eq("id", id);
+  if (error) throw new Error("Suppression du mapping impossible : " + error.message);
+  return done("Mapping supprimé.");
+}
+
+export async function retrySupplierOrder(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const { error } = await supabaseAdmin().from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).in("status", ["failed","unknown","needs_review"]);
+  if (error) throw new Error("Impossible de remettre la commande fournisseur dans la file : " + error.message);
+  await dispatchSupplierOrders(1);
+  return done("Commande fournisseur remise en traitement.");
+}
+
+export async function generateWebhookSecret() {
+  await requireAdmin();
+  return randomBytes(32).toString("hex");
+}
