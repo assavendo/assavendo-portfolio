@@ -10,6 +10,7 @@ import { encryptSupplierSecret } from "@/lib/dropship/crypto";
 import { fetchInventory } from "@/lib/dropship/connector";
 import { dispatchSupplierOrders } from "@/lib/dropship/orders";
 import { syncSupplierConnection } from "@/lib/dropship/sync";
+import { getSupplierProvider } from "@/lib/dropship/providers";
 
 const connectionSchema = z.object({
   id: z.string().uuid().optional().or(z.literal("")),
@@ -33,6 +34,11 @@ const connectionSchema = z.object({
   order_payload_template: z.string().trim().min(2).max(12000),
   auth_header: z.string().trim().min(2).max(100),
   auth_prefix: z.string().trim().max(60),
+  provider_key: z.string().trim().min(2).max(80).default("custom_rest"),
+  credential_1: z.string().max(8000).optional().or(z.literal("")),
+  credential_2: z.string().max(8000).optional().or(z.literal("")),
+  credential_3: z.string().max(8000).optional().or(z.literal("")),
+  credential_4: z.string().max(8000).optional().or(z.literal("")),
   api_secret: z.string().max(8000).optional().or(z.literal("")),
   webhook_secret: z.string().max(8000).optional().or(z.literal("")),
   sync_interval_seconds: z.coerce.number().int().min(60).max(86400),
@@ -74,9 +80,17 @@ export async function saveSupplierConnection(form: FormData) {
   try { template = parseTemplate(parsed.data.order_payload_template); } catch (error) { throw new Error(error instanceof Error ? error.message : "Template JSON invalide."); }
 
   const db = supabaseAdmin();
+  const provider = getSupplierProvider(parsed.data.provider_key);
+  const credentials = [parsed.data.credential_1, parsed.data.credential_2, parsed.data.credential_3, parsed.data.credential_4].filter(Boolean);
+  const primarySecret = parsed.data.credential_1 || parsed.data.api_secret || "";
   const row = {
     name: parsed.data.name,
-    adapter: "generic_rest",
+    adapter: provider.adapterKey,
+    provider_key: provider.key,
+    integration_mode: provider.integrationMode,
+    provider_capabilities: provider.capabilities,
+    docs_url: provider.docsUrl,
+    credentials_ciphertext: credentials.length ? encryptSupplierSecret(JSON.stringify(credentials)) : undefined,
     base_url: parsed.data.base_url.replace(/\/+$/, ""),
     enabled: Boolean(parsed.data.id) ? undefined : false,
     auto_order_enabled: parsed.data.auto_order_enabled === "on",
@@ -99,7 +113,7 @@ export async function saveSupplierConnection(form: FormData) {
     order_payload_template: template,
     auth_header: parsed.data.auth_header,
     auth_prefix: parsed.data.auth_prefix,
-    secret_ciphertext: parsed.data.api_secret ? encryptSupplierSecret(parsed.data.api_secret) : undefined,
+    secret_ciphertext: primarySecret ? encryptSupplierSecret(primarySecret) : undefined,
     webhook_secret_ciphertext: parsed.data.webhook_secret ? encryptSupplierSecret(parsed.data.webhook_secret) : undefined,
     config: {
       max_supplier_order_cents: Math.round(parsed.data.max_supplier_order_eur * 100),
@@ -119,7 +133,7 @@ export async function saveSupplierConnection(form: FormData) {
     return done("Connexion fournisseur mise à jour.");
   }
 
-  if (!parsed.data.api_secret) throw new Error("Ajoutez le secret API du fournisseur pour créer une connexion active.");
+  if (!primarySecret) throw new Error("Ajoutez le premier identifiant/secret demandé par le fournisseur pour créer la connexion.");
   const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
   if (error || !data) throw new Error("Connexion fournisseur impossible : " + (error?.message ?? "inconnue"));
   return done("Connexion fournisseur créée. Testez-la avant d'activer la synchronisation.");
@@ -182,6 +196,8 @@ export async function saveSupplierMapping(form: FormData) {
     markup_cents: Math.round(d.markup_eur * 100),
     min_retail_cents: Math.round(d.min_retail_eur * 100),
     max_retail_cents: d.max_retail_eur == null ? null : Math.round(d.max_retail_eur * 100),
+    priority: d.priority,
+    destination_countries: (d.destination_countries || "").split(",").map((v) => v.trim().toUpperCase()).filter(Boolean).slice(0, 100),
   };
 
   if (d.id) {
