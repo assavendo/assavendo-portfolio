@@ -16,6 +16,10 @@ import { isAllowedImageUrl } from "@/lib/images";
 
 const back = (msg: string, kind: "ok" | "erreur" = "ok"): never => { revalidatePath("/admin/ia"); redirect(`/admin/ia?${kind}=${encodeURIComponent(msg)}`); };
 const id = (f: FormData) => z.string().uuid().parse(f.get("id"));
+const submissionId = (f: FormData) => {
+  const raw = f.get("submission_id");
+  return raw ? z.string().uuid().parse(raw) : randomUUID();
+};
 
 export async function addKey(form: FormData) {
   await requireAdmin();
@@ -152,14 +156,20 @@ export async function saveAgent(form: FormData) {
 }
 
 export async function askResearch(form: FormData) {
-  await requireAdmin(); const q = z.string().trim().min(10).max(1500).safeParse(form.get("request")); if (!q.success) return back("Décrivez votre demande (10 caractères minimum).", "erreur");
+  await requireAdmin();
+  const q = z.string().trim().min(10).max(1500).safeParse(form.get("request"));
+  if (!q.success) return back("Décrivez votre demande (10 caractères minimum).", "erreur");
   if (!(await allow("ai-ask", 15, 600))) return back("Trop de demandes. Patientez.", "erreur");
-  const r = await research(q.data); return back(r.note, r.ok ? "ok" : "erreur");
+  const r = await research(q.data, submissionId(form));
+  return back(r.note, r.ok ? "ok" : "erreur");
 }
 export async function askProduct(form: FormData) {
-  await requireAdmin(); const q = z.string().trim().min(10).max(1500).safeParse(form.get("request")); if (!q.success) return back("Décrivez le produit (10 caractères minimum).", "erreur");
+  await requireAdmin();
+  const q = z.string().trim().min(10).max(1500).safeParse(form.get("request"));
+  if (!q.success) return back("Décrivez le produit (10 caractères minimum).", "erreur");
   if (!(await allow("ai-ask", 15, 600))) return back("Trop de demandes. Patientez.", "erreur");
-  const r = await proposeProduct(q.data); return back(r.note, r.ok ? "ok" : "erreur");
+  const r = await proposeProduct(q.data, submissionId(form));
+  return back(r.note, r.ok ? "ok" : "erreur");
 }
 
 /** Décision de l'administrateur sur une tâche en attente : c'est ici, et seulement ici, qu'un e-mail part ou qu'un produit est créé. */
