@@ -16,6 +16,202 @@ import { isAllowedImageUrl } from "@/lib/images";
 
 const back = (msg: string, kind: "ok" | "erreur" = "ok"): never => { revalidatePath("/admin/ia"); redirect(`/admin/ia?${kind}=${encodeURIComponent(msg)}`); };
 const id = (f: FormData) => z.string().uuid().parse(f.get("id"));
+const aiConversationAgent = z.enum(["recherche", "catalogue", "support"]);
+const optionalUuid = (value: FormDataEntryValue | null) => {
+  if (!value) return null;
+  const parsed = z.string().uuid().safeParse(String(value));
+  return parsed.success ? parsed.data : null;
+};
+
+const conversationRedirect = (conversationId: string, message?: string, kind: "ok" | "erreur" = "ok"): never => {
+  revalidatePath("/admin/ia");
+  const params = new URLSearchParams({ conversation: conversationId });
+  if (message) params.set(kind, message);
+  redirect(`/admin/ia?${params.toString()}#ai-studio`);
+};
+
+function conversationTitle(text: string, fallback = "Nouvelle discussion"): string {
+  const clean = text.replace(/\\s+/g, " ").trim();
+  if (!clean) return fallback;
+  return clean.length > 64 ? `${clean.slice(0, 61)}…` : clean;
+}
+
+export async function sendAiConversationMessage(form: FormData) {
+  const { user } = await requireAdmin();
+  const agentSlug = aiConversationAgent.safeParse(form.get("agent_slug"));
+  const message = z.string().trim().min(1).max(4000).safeParse(form.get("message"));
+  const submission = z.string().uuid().safeParse(form.get("submission_id"));
+
+  if (!agentSlug.success || !message.success || !submission.success) {
+    return back("Message ou paramètres de conversation invalides.", "erreur");
+  }
+
+  const db = supabaseAdmin();
+  const submissionId = submission.data;
+
+  const { data: duplicate } = await db
+    .from("ai_conversation_messages")
+    .select("conversation_id, role, content")
+    .eq("submission_id", submissionId)
+    .maybeSingle();
+
+  if (duplicate?.conversation_id) {
+    return conversationRedirect(String(duplicate.conversation_id), "Cette demande a déjà été traitée : aucune deuxième requête IA n'a été envoyée.");
+  }
+
+  const { data: agentRow } = await db
+    .from("ai_agents")
+    .select("slug,system_prompt,enabled,autonomy")
+    .eq("slug", agentSlug.data)
+    .maybeSingle();
+
+  if (!agentRow?.enabled) {
+    return back(`Agent ${agentSlug.data} désactivé.`, "erreur");
+  }
+
+  let conversationId = optionalUuid(form.get("conversation_id"));
+
+  if (conversationId) {
+    const { data: existing } = await db
+      .from("ai_conversations")
+      .select("id,agent_slug,status")
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (!existing) conversationId = null;
+    else if (existing.status === "archived") {
+      return conversationRedirect(String(existing.id), "Cette discussion est archivée.", "erreur");
+    } else if (existing.agent_slug !== agentSlug.data) {
+      return conversationRedirect(String(existing.id), "Le type d'agent de cette discussion ne peut pas être changé en cours de route.", "erreur");
+    }
+  }
+
+  if (!conversationId) {
+    const { data: created, error: createError } = await db.from("ai_conversations").insert({
+      agent_slug: agentSlug.data,
+      title: conversationTitle(message.data),
+      status: "active",
+      last_message_preview: message.data.slice(0, 180),
+      created_by: user.id,
+    }).select("id").single();
+
+    if (createError || !created) {
+      return back("La discussion n'a pas pu être créée.", "erreur");
+    }
+    conversationId = String(created.id);
+  }
+
+  const { data: insertedUser, error: userMessageError } = await db.from("ai_conversation_messages").insert({
+    conversation_id: conversationId,
+    role: "user",
+    content: message.data,
+    submission_id: submissionId,
+    metadata: { actor: "admin", agent_slug: agentSlug.data },
+  }).select("id").single();
+
+  if (userMessageError?.code === "23505") {
+    return conversationRedirect(conversationId, "Cette demande a déjà été prise en compte. Aucun second appel IA n'a été envoyé.");
+  }
+  if (userMessageError || !insertedUser) {
+    return conversationRedirect(conversationId, "Votre message n'a pas pu être enregistré.", "erreur");
+  }
+
+  const { data: priorMessages } = await db
+    .from("ai_conversation_messages")
+    .select("role,content")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true })
+    .limit(24);
+
+  const messages = [
+    { role: "system" as const, content: agentRow.system_prompt },
+    ...((priorMessages ?? []).map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: String(m.content),
+    }))),
+  ];
+
+  const t0 = Date.now();
+  const result = await runAgent(
+    agentSlug.data,
+    messages,
+    { maxTokens: 1400, json: agentSlug.data === "catalogue" },
+  );
+  const latency = Date.now() - t0;
+
+  if (!result.ok) {
+    await db.from("ai_conversation_messages").insert({
+      conversation_id: conversationId,
+      role: "assistant",
+      content: result.error,
+      latency_ms: latency,
+      metadata: { error: true, attempts: result.attempts },
+    });
+    await db.from("ai_conversations").update({
+      last_message_preview: `Erreur : ${result.error}`,
+      updated_at: new Date().toISOString(),
+    }).eq("id", conversationId);
+    return conversationRedirect(conversationId, result.error, "erreur");
+  }
+
+  await db.from("ai_conversation_messages").insert({
+    conversation_id: conversationId,
+    role: "assistant",
+    content: result.text,
+    provider_slug: result.provider,
+    model_key: result.model,
+    latency_ms: latency,
+    estimated_cost_usd: result.estimatedCostUsd ?? null,
+    metadata: {
+      attempts: result.attempts,
+      key_label: result.keyLabel,
+      account_id: result.accountId ?? null,
+    },
+  });
+
+  await db.from("ai_conversations").update({
+    last_message_preview: result.text.replace(/\\s+/g, " ").slice(0, 180),
+    updated_at: new Date().toISOString(),
+  }).eq("id", conversationId);
+
+  return conversationRedirect(conversationId, "Réponse générée.");
+}
+
+export async function renameAiConversation(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().safeParse(form.get("id"));
+  const title = z.string().trim().min(1).max(160).safeParse(form.get("title"));
+  if (!id.success || !title.success) return back("Nom de discussion invalide.", "erreur");
+  const db = supabaseAdmin();
+  const { error } = await db.from("ai_conversations").update({
+    title: title.data,
+    updated_at: new Date().toISOString(),
+  }).eq("id", id.data);
+  if (error) return back(error.message, "erreur");
+  return conversationRedirect(id.data, "Discussion renommée.");
+}
+
+export async function deleteAiConversation(form: FormData) {
+  const { user } = await requireAdmin();
+  const id = z.string().uuid().safeParse(form.get("id"));
+  if (!id.success) return back("Discussion invalide.", "erreur");
+  const db = supabaseAdmin();
+  await db.from("ai_audit_logs").insert({
+    actor_type: "user",
+    actor_id: user.id,
+    user_id: user.id,
+    service: "ai-control-plane",
+    action: "delete_ai_conversation",
+    resource_type: "ai_conversation",
+    resource_id: id.data,
+    policy_decision: "ALLOW",
+  });
+  const { error } = await db.from("ai_conversations").delete().eq("id", id.data);
+  if (error) return back("La discussion n'a pas pu être supprimée.", "erreur");
+  revalidatePath("/admin/ia");
+  redirect("/admin/ia#ai-studio");
+}
+
 const submissionId = (f: FormData) => {
   const raw = f.get("submission_id");
   return raw ? z.string().uuid().parse(raw) : randomUUID();
