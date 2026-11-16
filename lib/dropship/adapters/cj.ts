@@ -12,6 +12,7 @@ type CjCredentials = {
 
 type CjResponse<T> = {
   code?: number;
+  result?: boolean;
   success?: boolean;
   message?: string;
   data?: T;
@@ -37,7 +38,7 @@ function credentials(connection: AdapterConnection): CjCredentials {
 }
 
 function validResponse<T>(response: CjResponse<T>): T {
-  if (response.success === false || (typeof response.code === "number" && response.code !== 200)) {
+  if (response.success === false || response.result === false || (typeof response.code === "number" && response.code !== 200)) {
     const detail = response.requestId ? " (requestId " + response.requestId + ")" : "";
     throw new Error("CJ " + (response.code ?? "API") + ": " + String(response.message ?? "Erreur fournisseur") + detail);
   }
@@ -250,12 +251,16 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
       return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : Math.floor(Date.now() / 1000);
     })(),
     orderFlow: 1,
-    products: items.map((item) => ({
-      vid: String(item.external_product_id ?? ""),
-      sku: item.sku ? String(item.sku) : undefined,
-      quantity: Number(item.quantity ?? 0),
-      storeLineItemId: String(item.store_line_item_id ?? item.id ?? ""),
-    })),
+    products: items.map((item) => {
+      const vid = String(item.external_product_id ?? "").trim();
+      const sku = String(item.sku ?? "").trim();
+      return {
+        ...(vid ? { vid } : {}),
+        ...(sku ? { sku } : {}),
+        quantity: Number(item.quantity ?? 0),
+        storeLineItemId: String(item.store_line_item_id ?? item.id ?? ""),
+      };
+    }),
   };
 }
 
