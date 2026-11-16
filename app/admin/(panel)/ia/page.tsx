@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { randomUUID } from "node:crypto";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { PRESETS, ROLES } from "@/lib/ai/policy";
 import AiConversationStudio from "@/components/admin/ai-conversation-studio";
-import AiRequestForm from "@/components/admin/ai-request-form";
 import {
-  addKey, askProduct, askResearch, keyAction, saveAgent, sendAiConversationMessage, renameAiConversation, deleteAiConversation
+  addKey, keyAction, saveAgent, sendAiConversationMessage, renameAiConversation, deleteAiConversation
 } from "@/app/actions/ai";
 import {
   addManusAccount, decideAiApproval, resolveAiIncident, runAiBenchmark, saveAiBudget, saveAiModel, saveAiPolicy, saveAiWorkflow, setAgentTool, setAiMode,
@@ -24,8 +22,6 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
   await requireAdmin();
   const sp = await searchParams;
   const db = supabaseAdmin();
-  const researchSubmissionId = randomUUID();
-  const productSubmissionId = randomUUID();
 
   const [
     { data: settings },
@@ -68,7 +64,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     db.from("ai_incidents").select("*").in("status", ["open","acknowledged"]).order("started_at", { ascending: false }).limit(50),
     db.from("ai_runs").select("*").order("created_at", { ascending: false }).limit(40),
     db.from("ai_audit_logs").select("id,timestamp,actor_type,actor_id,action,resource_type,resource_id,policy_decision,result,error").order("created_at", { ascending: false }).limit(60),
-    db.from("ai_tasks").select("id,title,result,created_at").eq("kind","research_note").eq("status","done").order("created_at", { ascending: false }).limit(3),
+    db.from("ai_conversations").select("id,agent_slug,title,status,last_message_preview,created_at,updated_at").eq("status","active").order("updated_at", { ascending: false }).limit(100),
   ]);
 
   const today = new Date().toISOString().slice(0, 10);
