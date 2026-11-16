@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { fetchInventory, type SupplierInventoryRecord } from "./connector";
 
@@ -39,6 +40,36 @@ function retailFromCost(mapping: Mapping, costCents: number): number | null {
 function percentChange(oldValue: number | null, nextValue: number | null): number | null {
   if (oldValue === null || nextValue === null || oldValue === 0) return null;
   return ((nextValue - oldValue) / oldValue) * 100;
+}
+
+
+
+async function acquireSupplierJobLock(jobKey: string, ttlSeconds = 55): Promise<string | null> {
+  const db = supabaseAdmin();
+  const now = new Date();
+  const until = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
+  const lockedBy = randomUUID();
+
+  const { data: refreshed } = await db.from("supplier_job_locks")
+    .update({ locked_until: until, locked_by: lockedBy })
+    .eq("job_key", jobKey)
+    .lt("locked_until", now.toISOString())
+    .select("job_key")
+    .maybeSingle();
+  if (refreshed) return lockedBy;
+
+  const { error } = await db.from("supplier_job_locks").insert({
+    job_key: jobKey,
+    locked_until: until,
+    locked_by: lockedBy,
+  });
+  if (!error) return lockedBy;
+  if (error.code !== "23505") throw error;
+  return null;
+}
+
+async function releaseSupplierJobLock(jobKey: string, lockedBy: string): Promise<void> {
+  await supabaseAdmin().from("supplier_job_locks").delete().eq("job_key", jobKey).eq("locked_by", lockedBy);
 }
 
 async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, connectionId: string): Promise<{ changed: boolean; priceChanged: boolean; stockChanged: boolean }> {
@@ -113,9 +144,18 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
 }
 
 export async function syncSupplierConnection(connectionId: string, trigger: "schedule" | "manual" | "webhook" = "schedule") {
+  const lockKey = `supplier-sync:${connectionId}`;
+  const lockedBy = await acquireSupplierJobLock(lockKey);
+  if (!lockedBy) {
+    return { connectionId, fetched: 0, applied: 0, changed: 0, priceChanges: 0, stockChanges: 0, skipped: true };
+  }
+
   const db = supabaseAdmin();
   const { data: run, error: runError } = await db.from("supplier_sync_runs").insert({ supplier_connection_id: connectionId, trigger, status: "running" }).select("id").single();
-  if (runError || !run) throw new Error(runError?.message ?? "Impossible de créer le run de synchronisation.");
+  if (runError || !run) {
+    await releaseSupplierJobLock(lockKey, lockedBy);
+    throw new Error(runError?.message ?? "Impossible de créer le run de synchronisation.");
+  }
 
   try {
     const { data: mappings, error: mappingError } = await db.from("product_supplier_mappings")
@@ -149,15 +189,16 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
       status: "success", finished_at: now, fetched_count: records.length, applied_count: applied,
       changed_count: changed, error_count: 0, metadata: { price_changes: priceChanges, stock_changes: stockChanges, provider: connection.name },
     }).eq("id", run.id);
-    return { connectionId, fetched: records.length, applied, changed, priceChanges, stockChanges };
+    return { connectionId, fetched: records.length, applied, changed, priceChanges, stockChanges, skipped: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Supplier synchronization failed.";
     await db.from("supplier_connections").update({ status: "degraded", last_sync_at: new Date().toISOString(), last_error: message.slice(0, 1000) }).eq("id", connectionId);
     await db.from("supplier_sync_runs").update({ status: "failed", finished_at: new Date().toISOString(), error_count: 1, error: message.slice(0, 2000) }).eq("id", run.id);
     throw error;
+  } finally {
+    await releaseSupplierJobLock(lockKey, lockedBy);
   }
 }
-
 export async function syncDueSupplierConnections(limit = 5) {
   const db = supabaseAdmin();
   const { data: connections, error } = await db.from("supplier_connections")
