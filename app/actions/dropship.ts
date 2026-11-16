@@ -16,6 +16,7 @@ const back = (msg: string, kind: "ok" | "erreur" = "ok"): never => {
 const schema = z.object({
   supplier_url: z.string().trim().min(12).max(2000),
   product_query: z.string().trim().min(2, "Indiquez le nom du produit.").max(200),
+  operator_prompt: z.string().trim().max(4000).optional().default(""),
   rights_confirmed: z.literal("on", { error: "Confirmez que vous êtes autorisé à utiliser cette source et ses images." }),
 });
 
@@ -60,11 +61,11 @@ export async function importSupplierProduct(form: FormData) {
   }
 
   const db = supabaseAdmin();
-  const { data: duplicate } = await db.from("dropship_imports").select("id,status").eq("supplier_url", target.toString()).in("status", ["queued", "running", "needs_review", "approved"]).limit(1).maybeSingle();
+  const { data: duplicate } = await db.from("dropship_imports").select("id,status").eq("supplier_url", target.toString()).is("archived_at", null).in("status", ["queued", "running", "needs_review", "approved"]).limit(1).maybeSingle();
   if (duplicate) return back(`Cette page est déjà importée (référence ${duplicate.id}, statut ${duplicate.status}).`, "erreur");
 
   const { data: row, error: insertError } = await db.from("dropship_imports").insert({
-    supplier_url: target.toString(), product_query: parsed.data.product_query, status: "queued", rights_confirmed: true,
+    supplier_url: target.toString(), product_query: parsed.data.product_query, operator_prompt: parsed.data.operator_prompt ?? "", status: "queued", rights_confirmed: true,
     extracted: { version: 1, requested_at: new Date().toISOString() }, images: [],
   }).select("id").single();
   if (insertError || !row) return back("L'import n'a pas pu être enregistré dans Supabase.", "erreur");
@@ -103,7 +104,7 @@ export async function importSupplierProduct(form: FormData) {
     if (updateError) return await fail("La fiche extraite n'a pas pu être conservée dans Supabase.");
 
     const modelSourceUrl = new URL(response.url); modelSourceUrl.search = ""; modelSourceUrl.hash = "";
-    const proposal = await proposeSupplierProduct({ importId: row.id, supplierUrl: modelSourceUrl.toString(), productQuery: parsed.data.product_query, extracted });
+    const proposal = await proposeSupplierProduct({ importId: row.id, supplierUrl: modelSourceUrl.toString(), productQuery: parsed.data.product_query, operatorPrompt: parsed.data.operator_prompt ?? "", extracted });
     if (!proposal.ok) return await fail(`Extraction terminée, mais la proposition IA a échoué : ${proposal.note}`);
     const { error: doneError } = await db.from("dropship_imports").update({ status: "needs_review", error: null, updated_at: new Date().toISOString() }).eq("id", row.id);
     if (doneError) return await fail("Proposition créée, mais le statut d'import n'a pas pu être mis à jour. Vérifiez le Centre IA avant de relancer.");
@@ -112,4 +113,60 @@ export async function importSupplierProduct(form: FormData) {
     const message = e instanceof FetchRefused ? e.message : "Échec réseau ou analyse fournisseur; aucun produit n'a été publié.";
     return await fail(message);
   }
+}
+
+
+export async function archiveSupplierImport(form: FormData) {
+  const { user } = await requireAdmin();
+  const id = z.string().uuid().safeParse(form.get("id"));
+  if (!id.success) return back("Import invalide.", "erreur");
+  const db = supabaseAdmin();
+  const { data: row } = await db.from("dropship_imports").select("id,status,product_id,archived_at").eq("id", id.data).maybeSingle();
+  if (!row) return back("Import introuvable.", "erreur");
+  if (row.archived_at) return back("Cet import est déjà archivé.");
+  if (row.status === "queued" || row.status === "running") return back("Cet import est encore en traitement; archivez-le après analyse.", "erreur");
+  const now = new Date().toISOString();
+  const { error } = await db.from("dropship_imports").update({ archived_at: now, archived_by: user.id, updated_at: now }).eq("id", row.id).is("archived_at", null);
+  if (error) return back("L'archivage a échoué.", "erreur");
+  await db.from("ai_audit_logs").insert({
+    actor_type: "user",
+    actor_id: user.id,
+    user_id: user.id,
+    service: "supplier-workspace",
+    action: "archive_supplier_import",
+    resource_type: "dropship_import",
+    resource_id: row.id,
+    policy_decision: "ALLOW",
+    metadata: { status: row.status, product_id: row.product_id ?? null },
+    timestamp: now,
+    created_at: now,
+  });
+  return back("Import archivé.");
+}
+
+export async function restoreSupplierImport(form: FormData) {
+  const { user } = await requireAdmin();
+  const id = z.string().uuid().safeParse(form.get("id"));
+  if (!id.success) return back("Import invalide.", "erreur");
+  const db = supabaseAdmin();
+  const { data: row } = await db.from("dropship_imports").select("id,status,archived_at").eq("id", id.data).maybeSingle();
+  if (!row) return back("Import introuvable.", "erreur");
+  if (!row.archived_at) return back("Cet import est déjà actif.");
+  const now = new Date().toISOString();
+  const { error } = await db.from("dropship_imports").update({ archived_at: null, archived_by: null, updated_at: now }).eq("id", row.id).not("archived_at", "is", null);
+  if (error) return back("La restauration a échoué.", "erreur");
+  await db.from("ai_audit_logs").insert({
+    actor_type: "user",
+    actor_id: user.id,
+    user_id: user.id,
+    service: "supplier-workspace",
+    action: "restore_supplier_import",
+    resource_type: "dropship_import",
+    resource_id: row.id,
+    policy_decision: "ALLOW",
+    metadata: { status: row.status },
+    timestamp: now,
+    created_at: now,
+  });
+  return back("Import restauré.");
 }
