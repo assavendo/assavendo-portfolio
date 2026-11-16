@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { sendEmail, esc } from "@/lib/email";
 import { siteUrl } from "@/lib/env";
@@ -38,22 +39,101 @@ export async function draftReply(messageId: string): Promise<{ ok: boolean; note
   return { ok: true, note: "Brouillon prêt." };
 }
 
+async function claimManualSubmission(input: {
+  submissionId: string;
+  agentSlug: "recherche" | "catalogue";
+  kind: "research_note" | "product_proposal";
+  title: string;
+}): Promise<{ claimed: true; taskId: string } | { claimed: false; note: string }> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("ai_tasks").insert({
+    submission_id: input.submissionId,
+    agent: input.agentSlug,
+    kind: input.kind,
+    status: "pending",
+    title: input.title,
+    payload: {},
+  }).select("id").single();
+
+  if (!error && data) return { claimed: true, taskId: String(data.id) };
+
+  if (error?.code === "23505") {
+    const { data: existing } = await db.from("ai_tasks")
+      .select("id,status,created_at")
+      .eq("submission_id", input.submissionId)
+      .maybeSingle();
+    if (existing?.status === "pending") {
+      return { claimed: false, note: "Cette demande est déjà en cours. Aucun second appel IA n'a été lancé." };
+    }
+    return { claimed: false, note: "Cette demande a déjà été traitée. Aucun second appel IA n'a été relancé." };
+  }
+
+  return { claimed: false, note: "La demande n'a pas pu être initialisée. Aucun appel IA supplémentaire n'a été lancé." };
+}
+
 /** Recherche : note d'analyse en lecture seule (aucune écriture dans le catalogue). */
-export async function research(request: string): Promise<{ ok: boolean; note: string }> {
+export async function research(request: string, submissionId = randomUUID()): Promise<{ ok: boolean; note: string }> {
   const a = await agent("recherche"); if (!a) return { ok: false, note: "Agent recherche désactivé." };
+
+  const claim = await claimManualSubmission({
+    submissionId,
+    agentSlug: "recherche",
+    kind: "research_note",
+    title: request.slice(0, 120),
+  });
+  if (!claim.claimed) return { ok: true, note: claim.note };
+
+  const db = supabaseAdmin();
   const r = await runAgent("recherche", [{ role: "system", content: a.system_prompt }, { role: "user", content: `Demande de l'administrateur :\n${request}\n\nCatalogue actuel :\n${await catalogContext()}` }], { maxTokens: 1200 });
-  if (!r.ok) return { ok: false, note: r.error };
-  await supabaseAdmin().from("ai_tasks").insert({ agent: "recherche", kind: "research_note", status: "done", title: request.slice(0, 120), payload: { request }, result: { text: r.text, key: r.keyLabel } });
+  if (!r.ok) {
+    await db.from("ai_tasks").update({ status: "failed", payload: { request }, result: { error: r.error } }).eq("id", claim.taskId);
+    return { ok: false, note: r.error };
+  }
+
+  const { error } = await db.from("ai_tasks").update({
+    status: "done",
+    payload: { request },
+    result: { text: r.text, key: r.keyLabel },
+  }).eq("id", claim.taskId);
+  if (error) {
+    return { ok: false, note: "La réponse a été générée, mais son enregistrement a échoué. Aucun second appel ne sera lancé automatiquement." };
+  }
   return { ok: true, note: "Note d'analyse prête." };
 }
 
-/** Catalogue : propose une fiche. Rien n'est créé tant que l'administrateur n'a pas approuvé. */
-export async function proposeProduct(instructions: string): Promise<{ ok: boolean; note: string }> {
+/** Catalogue : propose une fiche. Rien n'est créé tant que l'administrateur ne l'a pas approuvée. */
+export async function proposeProduct(instructions: string, submissionId = randomUUID()): Promise<{ ok: boolean; note: string }> {
   const a = await agent("catalogue"); if (!a) return { ok: false, note: "Agent catalogue désactivé." };
+
+  const claim = await claimManualSubmission({
+    submissionId,
+    agentSlug: "catalogue",
+    kind: "product_proposal",
+    title: instructions.slice(0, 120),
+  });
+  if (!claim.claimed) return { ok: true, note: claim.note };
+
+  const db = supabaseAdmin();
   const r = await runAgent("catalogue", [{ role: "system", content: a.system_prompt }, { role: "user", content: `Consignes de l'administrateur :\n${instructions}` }], { maxTokens: 1200, json: true });
-  if (!r.ok) return { ok: false, note: r.error };
-  const p = parseProposal(r.text); if (!p.ok) return { ok: false, note: p.error };
-  await supabaseAdmin().from("ai_tasks").insert({ agent: "catalogue", kind: "product_proposal", status: "pending", title: p.value.title, payload: { ...p.value, key: r.keyLabel } });
+  if (!r.ok) {
+    await db.from("ai_tasks").update({ status: "failed", payload: { request: instructions }, result: { error: r.error } }).eq("id", claim.taskId);
+    return { ok: false, note: r.error };
+  }
+  const p = parseProposal(r.text);
+  if (!p.ok) {
+    await db.from("ai_tasks").update({ status: "failed", payload: { request: instructions }, result: { error: p.error } }).eq("id", claim.taskId);
+    return { ok: false, note: p.error };
+  }
+
+  const { error } = await db.from("ai_tasks").update({
+    status: "pending",
+    title: p.value.title,
+    payload: { ...p.value, key: r.keyLabel },
+    result: null,
+  }).eq("id", claim.taskId);
+  if (error) {
+    return { ok: false, note: "La fiche a été générée, mais la proposition n'a pas pu être enregistrée. Aucun second appel IA ne sera lancé automatiquement." };
+  }
   return { ok: true, note: "Fiche proposée, à valider." };
 }
 
