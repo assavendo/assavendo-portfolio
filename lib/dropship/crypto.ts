@@ -28,7 +28,8 @@ export function signSupplierWebhook(body: string, secret: string): string {
 }
 
 export function verifySupplierWebhook(body: string, signature: string, secret: string): boolean {
+  const normalized = signature.trim().replace(/^sha256=/i, "").toLowerCase();
   const expected = Buffer.from(signSupplierWebhook(body, secret), "utf8");
-  const received = Buffer.from(signature.trim().toLowerCase(), "utf8");
+  const received = Buffer.from(normalized, "utf8");
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
