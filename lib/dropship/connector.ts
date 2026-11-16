@@ -8,6 +8,7 @@ type Connection = {
   enabled: boolean;
   auto_order_enabled: boolean;
   webhook_enabled: boolean;
+  sync_interval_seconds: number;
   inventory_method: "GET" | "POST";
   inventory_path: string;
   inventory_response_path: string;
@@ -42,7 +43,7 @@ export type SupplierInventoryRecord = {
   raw: unknown;
 };
 
-const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
+const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,sync_interval_seconds,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
 
 export function getByPath(value: unknown, path: string): unknown {
   if (!path) return value;
