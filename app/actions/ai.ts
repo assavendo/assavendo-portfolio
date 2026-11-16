@@ -8,7 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { allow } from "@/lib/rate-limit";
 import { sendEmail, esc } from "@/lib/email";
 import { encryptSecret } from "@/lib/ai/crypto";
-import { callChat } from "@/lib/ai/router";
+import { callChat, runAgent } from "@/lib/ai/router";
 import { PRESETS, ROLES, scrub, type KeyRow } from "@/lib/ai/policy";
 import { createDraftProduct, proposeProduct, research } from "@/lib/ai/agents";
 import { parseProposal } from "@/lib/ai/guard";
