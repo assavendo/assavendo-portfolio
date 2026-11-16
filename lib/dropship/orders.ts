@@ -25,6 +25,8 @@ type Mapping = {
   supplier_cost_cents: number | null;
   supplier_currency: string | null;
   last_synced_at: string | null;
+  priority: number;
+  destination_countries: string[];
 };
 
 function isFresh(mapping: Mapping, intervalSeconds: number): boolean {
@@ -53,17 +55,37 @@ export async function queueSupplierOrders(orderId: string) {
   if (!(items ?? []).length) return { queued: 0, needsReview: false };
 
   const { data: mappings, error: mappingError } = await db.from("product_supplier_mappings")
-    .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,available,supplier_qty,supplier_cost_cents,supplier_currency,last_synced_at")
+    .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,available,supplier_qty,supplier_cost_cents,supplier_currency,last_synced_at,priority,destination_countries")
     .eq("enabled", true);
   if (mappingError) throw mappingError;
+
+  const allConnectionIds = [...new Set((mappings ?? []).map((m: Mapping) => m.supplier_connection_id))];
+  const connections = await connectionMap(allConnectionIds);
+  const country = String((order.shipping as any)?.countryCode ?? (order.shipping as any)?.country ?? "").trim().toUpperCase();
+  const supportsCountry = (mapping: Mapping) => !mapping.destination_countries?.length || !country || mapping.destination_countries.includes(country);
 
   const groups = new Map<string, { mapping: Mapping; items: Item[] }[]>();
   let needsReview = false;
   for (const item of (items ?? []) as Item[]) {
-    const matching = (mappings ?? []).filter((m: Mapping) => m.product_id === item.product_id && m.enabled && (m.variant_id === item.variant_id || (!m.variant_id && !item.variant_id)));
-    const chosen = matching.find((m) => m.available && m.supplier_qty >= item.qty && m.supplier_currency === "eur") ?? matching[0];
+    const matching = (mappings ?? []).filter((m: Mapping) => {
+      if (m.product_id !== item.product_id || !m.enabled) return false;
+      if (!(m.variant_id === item.variant_id || (!m.variant_id && !item.variant_id))) return false;
+      const connection = connections.get(m.supplier_connection_id);
+      return Boolean(connection?.enabled && connection?.auto_order_enabled && supportsCountry(m));
+    });
+    const ranked = [...matching].sort((a, b) => {
+      const aReady = a.available && a.supplier_qty >= item.qty && Boolean(a.supplier_cost_cents) && a.supplier_currency === "eur";
+      const bReady = b.available && b.supplier_qty >= item.qty && Boolean(b.supplier_cost_cents) && b.supplier_currency === "eur";
+      if (aReady !== bReady) return aReady ? -1 : 1;
+      const aFresh = isFresh(a, Number(connections.get(a.supplier_connection_id)?.sync_interval_seconds ?? 900));
+      const bFresh = isFresh(b, Number(connections.get(b.supplier_connection_id)?.sync_interval_seconds ?? 900));
+      if (aFresh !== bFresh) return aFresh ? -1 : 1;
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return (a.supplier_cost_cents ?? Number.MAX_SAFE_INTEGER) - (b.supplier_cost_cents ?? Number.MAX_SAFE_INTEGER);
+    });
+    const chosen = ranked[0];
     if (!chosen) { needsReview = true; continue; }
-    if (!chosen.available || chosen.supplier_qty < item.qty || !chosen.supplier_cost_cents || chosen.supplier_currency !== "eur") needsReview = true;
+    if (!chosen.available || chosen.supplier_qty < item.qty || !chosen.supplier_cost_cents || chosen.supplier_currency !== "eur" || !isFresh(chosen, Number(connections.get(chosen.supplier_connection_id)?.sync_interval_seconds ?? 900))) needsReview = true;
     const list = groups.get(chosen.supplier_connection_id) ?? [];
     const existing = list.find((group) => group.mapping.id === chosen.id);
     if (existing) existing.items.push(item);
@@ -72,7 +94,6 @@ export async function queueSupplierOrders(orderId: string) {
   }
 
   const connectionIds = [...groups.keys()];
-  const connections = await connectionMap(connectionIds);
   let queued = 0;
   for (const [connectionId, groupItems] of groups) {
     const connection = connections.get(connectionId);
