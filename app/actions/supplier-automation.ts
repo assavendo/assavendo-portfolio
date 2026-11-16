@@ -15,17 +15,17 @@ import { getSupplierProvider } from "@/lib/dropship/providers";
 const connectionSchema = z.object({
   id: z.string().uuid().optional().or(z.literal("")),
   name: z.string().trim().min(2).max(120),
-  base_url: z.string().trim().url().refine((v) => v.startsWith("https://"), "Le fournisseur doit utiliser HTTPS."),
+  base_url: z.string().trim().url().refine((v) => v.startsWith("https://"), "Le fournisseur doit utiliser HTTPS.").optional().or(z.literal("")),
   inventory_method: z.enum(["GET","POST"]),
-  inventory_path: z.string().trim().startsWith("/").max(300),
-  inventory_response_path: z.string().trim().max(200),
-  inventory_sku_path: z.string().trim().max(200),
-  inventory_qty_path: z.string().trim().max(200),
+  inventory_path: z.string().trim().startsWith("/").max(300).optional().or(z.literal("")),
+  inventory_response_path: z.string().trim().max(200).optional().or(z.literal("")),
+  inventory_sku_path: z.string().trim().max(200).optional().or(z.literal("")),
+  inventory_qty_path: z.string().trim().max(200).optional().or(z.literal("")),
   inventory_price_path: z.string().trim().max(200).optional().or(z.literal("")),
   inventory_currency_path: z.string().trim().max(200).optional().or(z.literal("")),
   inventory_available_path: z.string().trim().max(200).optional().or(z.literal("")),
   order_method: z.enum(["POST","PUT"]),
-  order_path: z.string().trim().startsWith("/").max(300),
+  order_path: z.string().trim().startsWith("/").max(300).optional().or(z.literal("")),
   order_response_id_path: z.string().trim().max(200).optional().or(z.literal("")),
   order_status_path: z.string().trim().max(200).optional().or(z.literal("")),
   order_tracking_number_path: z.string().trim().max(200).optional().or(z.literal("")),
@@ -83,6 +83,11 @@ export async function saveSupplierConnection(form: FormData) {
 
   const db = supabaseAdmin();
   const provider = getSupplierProvider(parsed.data.provider_key);
+  const requiresRestMapping = provider.integrationMode === "generic_rest";
+  if (requiresRestMapping) {
+    if (!parsed.data.base_url) throw new Error("Une connexion REST personnalisée exige une Base API HTTPS.");
+    if (!parsed.data.inventory_path || !parsed.data.inventory_response_path || !parsed.data.inventory_sku_path || !parsed.data.inventory_qty_path || !parsed.data.order_path) throw new Error("Complétez les endpoints REST d’inventaire et de commande pour le connecteur personnalisé.");
+  }
   const credentials = [parsed.data.credential_1, parsed.data.credential_2, parsed.data.credential_3, parsed.data.credential_4].filter(Boolean);
   const primarySecret = parsed.data.credential_1 || parsed.data.api_secret || "";
   const row = {
@@ -99,15 +104,15 @@ export async function saveSupplierConnection(form: FormData) {
     webhook_enabled: parsed.data.webhook_enabled === "on",
     sync_interval_seconds: parsed.data.sync_interval_seconds,
     inventory_method: parsed.data.inventory_method,
-    inventory_path: parsed.data.inventory_path,
-    inventory_response_path: parsed.data.inventory_response_path,
-    inventory_sku_path: parsed.data.inventory_sku_path,
-    inventory_qty_path: parsed.data.inventory_qty_path,
+    inventory_path: parsed.data.inventory_path || null,
+    inventory_response_path: parsed.data.inventory_response_path || null,
+    inventory_sku_path: parsed.data.inventory_sku_path || null,
+    inventory_qty_path: parsed.data.inventory_qty_path || null,
     inventory_price_path: parsed.data.inventory_price_path || null,
     inventory_currency_path: parsed.data.inventory_currency_path || null,
     inventory_available_path: parsed.data.inventory_available_path || null,
     order_method: parsed.data.order_method,
-    order_path: parsed.data.order_path,
+    order_path: parsed.data.order_path || null,
     order_response_id_path: parsed.data.order_response_id_path || null,
     order_status_path: parsed.data.order_status_path || null,
     order_tracking_number_path: parsed.data.order_tracking_number_path || null,
