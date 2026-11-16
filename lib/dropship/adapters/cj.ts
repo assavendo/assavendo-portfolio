@@ -281,8 +281,8 @@ async function findRecentOrderByNumber(
 
   const anchor = createdAt ? Date.parse(createdAt) : Date.now();
   const safeAnchor = Number.isFinite(anchor) ? anchor : Date.now();
-  const from = new Date(safeAnchor - 48 * 60 * 60 * 1000).toISOString();
-  const to = new Date(Math.max(Date.now(), safeAnchor) + 48 * 60 * 60 * 1000).toISOString();
+  const from = safeAnchor - 48 * 60 * 60 * 1000;
+  const to = Math.max(Date.now(), safeAnchor) + 48 * 60 * 60 * 1000;
 
   const data = await cjFetch<
     | CjOrderSummary[]
