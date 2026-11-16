@@ -14,10 +14,14 @@ alter table public.supplier_connections add constraint supplier_connections_adap
   check (adapter in ('generic_rest','cj','hypersku','alibaba','syncee','spocket','dsers','aliexpress','salehoo','eprolo','wiio','custom'));
 
 alter table public.supplier_connections
+  drop constraint if exists supplier_connections_provider_key_fkey;
+alter table public.supplier_connections
   add constraint supplier_connections_provider_key_fkey
   foreign key (provider_key) references public.supplier_provider_catalog(provider_key)
   on update cascade;
 
+alter table public.supplier_connections
+  drop constraint if exists supplier_connections_integration_mode_check;
 alter table public.supplier_connections
   add constraint supplier_connections_integration_mode_check
   check (integration_mode in ('native_api','oauth_api','partner_api','restricted_api','feed','managed_platform','directory','generic_rest'));
@@ -26,6 +30,8 @@ alter table public.product_supplier_mappings
   add column if not exists priority integer not null default 100,
   add column if not exists destination_countries text[] not null default '{}'::text[];
 
+alter table public.product_supplier_mappings
+  drop constraint if exists product_supplier_mappings_priority_check;
 alter table public.product_supplier_mappings
   add constraint product_supplier_mappings_priority_check
   check (priority between 1 and 10000);
