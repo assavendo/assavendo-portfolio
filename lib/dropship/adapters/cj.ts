@@ -141,6 +141,7 @@ function destinationCountry(orderContext: Record<string, unknown>): string {
 
 type CjProductQuery = {
   pid?: string;
+  vid?: string;
   productSku?: string;
   variantSku?: string;
   variants?: CjVariant[];
