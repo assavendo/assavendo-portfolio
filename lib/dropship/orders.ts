@@ -78,9 +78,7 @@ export async function queueSupplierOrders(orderId: string) {
     const connection = connections.get(connectionId);
     if (!connection || !connection.auto_order_enabled || !connection.enabled) { needsReview = true; continue; }
     for (const group of groupItems) {
-      for (const item of group.items) {
-        if (!isFresh(group.mapping, Number(connection.sync_interval_seconds ?? 900))) needsReview = true;
-      }
+      if (!isFresh(group.mapping, Number(connection.sync_interval_seconds ?? 900))) needsReview = true;
     }
     const totalCost = groupItems.reduce((sum, group) => sum + group.items.reduce((s, item) => s + (group.mapping.supplier_cost_cents ?? 0) * item.qty, 0), 0);
     const maxOrder = Number(connection.config?.max_supplier_order_cents ?? 100000);
