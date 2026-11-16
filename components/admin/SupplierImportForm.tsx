@@ -35,6 +35,13 @@ const PRESETS = [
   "Optimise la structure pour la boutique et la recherche interne avec des caractéristiques vérifiables.",
 ];
 
+const IMPORT_PROGRESS_STEPS = [
+  "Sécurisation de la source",
+  "Lecture des données publiques",
+  "Préparation de la fiche par l’IA",
+  "Contrôle et mise en revue",
+] as const;
+
 const STYLE = `
 .siw{border:1px solid rgba(255,255,255,.08);border-radius:24px;overflow:hidden;background:linear-gradient(145deg,#07111c,#0a1724 55%,#07101a);box-shadow:0 24px 70px rgba(0,0,0,.25)}
 .siw-head{padding:26px 28px;border-bottom:1px solid rgba(255,255,255,.07);background:radial-gradient(circle at 12% 0,rgba(255,210,70,.1),transparent 35%),rgba(4,10,17,.6)}
@@ -64,12 +71,12 @@ function clip(v: string, max = 180) { const x = v.replace(/\s+/g, " ").trim(); r
 function PendingImport() {
   const { pending } = useFormStatus();
   const [index, setIndex] = useState(0);
-  const steps = ["Sécurisation de la source", "Lecture des données publiques", "Préparation de la fiche par l’IA", "Contrôle et mise en revue"];
   useEffect(() => {
     if (!pending) { setIndex(0); return; }
-    const timer = window.setInterval(() => setIndex((x) => (x + 1) % steps.length), 1450);
+    const timer = window.setInterval(() => setIndex((x) => (x + 1) % IMPORT_PROGRESS_STEPS.length), 1450);
     return () => window.clearInterval(timer);
   }, [pending]);
+  const steps = IMPORT_PROGRESS_STEPS;
   if (!pending) return <button className="siw-submit">Importer et préparer avec l’IA</button>;
   return <div className="siw-progress" aria-live="polite"><span className="siw-dot"/><b>{steps[index]}</b><span style={{ marginLeft: "auto" }}>en cours <i/><i/><i/></span></div>;
 }
