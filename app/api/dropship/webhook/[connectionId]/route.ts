@@ -15,7 +15,8 @@ export const runtime = "nodejs";
 
 function statusFromExternal(value: string | null): string {
   const status = (value ?? "").toLowerCase();
-  if (status.includes("cancel")) return "canceled";
+  if (status.includes("cancel") || status.includes("return")) return "canceled";
+  if (status.includes("exception") || status.includes("failed")) return "needs_review";
   if (status.includes("deliver")) return "delivered";
   if (status.includes("ship")) return "shipped";
   if (status.includes("process") || status.includes("pending")) return "processing";
