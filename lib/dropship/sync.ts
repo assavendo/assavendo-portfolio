@@ -24,6 +24,7 @@ type Mapping = {
   source_currency: string | null;
   fx_rate_to_eur: number | null;
   external_product_id: string | null;
+  external_variant_id: string | null;
 };
 
 function retailFromCost(mapping: Mapping, costCents: number): number | null {
@@ -156,6 +157,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     source_currency: sourceCurrency,
     fx_rate_to_eur: fxRate,
     external_product_id: record.external_product_id ?? mapping.external_product_id ?? null,
+    external_variant_id: record.external_variant_id ?? mapping.external_variant_id ?? null,
     supplier_qty: qty,
     available,
     last_synced_at: now,
@@ -183,7 +185,7 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
 
   try {
     const { data: mappings, error: mappingError } = await db.from("product_supplier_mappings")
-      .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,auto_reprice,reprice_mode,margin_bps,markup_cents,min_retail_cents,max_retail_cents,supplier_cost_cents,supplier_currency,supplier_qty,available,source_cost_cents,source_currency,fx_rate_to_eur,external_product_id")
+      .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,auto_reprice,reprice_mode,margin_bps,markup_cents,min_retail_cents,max_retail_cents,supplier_cost_cents,supplier_currency,supplier_qty,available,source_cost_cents,source_currency,fx_rate_to_eur,external_product_id,external_variant_id")
       .eq("supplier_connection_id", connectionId)
       .eq("enabled", true);
     if (mappingError) throw mappingError;
