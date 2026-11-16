@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { decryptSupplierSecret, verifySupplierWebhook } from "@/lib/dropship/crypto";
@@ -21,6 +22,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ connectionId: 
   const { connectionId } = await ctx.params;
   const db = supabaseAdmin();
   const raw = await req.text();
+  if (raw.length > 1_000_000) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   const { data: connection, error } = await db.from("supplier_connections")
     .select("id,enabled,webhook_enabled,webhook_secret_ciphertext,config,order_status_path,order_tracking_number_path,order_tracking_url_path")
     .eq("id", connectionId).maybeSingle();
@@ -36,7 +38,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ connectionId: 
   try { payload = JSON.parse(raw); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const eventId = req.headers.get("x-event-id") ?? String(getByPath(payload, "id") ?? getByPath(payload, "event_id") ?? "");
   const eventType = req.headers.get("x-event-type") ?? String(getByPath(payload, "type") ?? getByPath(payload, "event_type") ?? "unknown");
-  const stableId = eventId || Buffer.from(raw).toString("base64url").slice(0, 120);
+  const stableId = eventId || createHash("sha256").update(raw, "utf8").digest("hex");
 
   const { data: existing } = await db.from("supplier_webhook_events").select("id,status").eq("supplier_connection_id", connectionId).eq("event_id", stableId).maybeSingle();
   if (existing) return NextResponse.json({ received: true, duplicate: true });
