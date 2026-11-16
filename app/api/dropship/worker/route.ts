@@ -4,7 +4,7 @@ import { processSupplierAutomation } from "@/lib/dropship/orders";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const expected = process.env.CR​ON_SECRET;
+  const expected = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization") ?? "";
   if (!expected || auth !== "Bearer " + expected) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
