@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { encryptSupplierSecret } from "@/lib/dropship/crypto";
 import { fetchInventory } from "@/lib/dropship/connector";
-import { dispatchSupplierOrders, queueSupplierOrders } from "@/lib/dropship/orders";
+import { dispatchSupplierOrders } from "@/lib/dropship/orders";
 import { syncSupplierConnection } from "@/lib/dropship/sync";
 
 const connectionSchema = z.object({
