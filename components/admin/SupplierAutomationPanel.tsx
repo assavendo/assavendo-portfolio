@@ -160,14 +160,30 @@ function ConnectionForm({ c }: { c?: Connection }) {
       <label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label>
     </div>
 
-    <div className="saw-two">
-      <label><div className="saw-label">{provider.credentialFields[0] ?? "Identifiant principal"} {c ? "(laisser vide = conserver)" : ""}</div><input className="saw-input" type="password" name="credential_1" autoComplete="new-password" placeholder={c ? "••••••••••••" : "Identifiant / secret"} /></label>
-      <label><div className="saw-label">{provider.credentialFields[1] ?? "Identifiant secondaire"}</div><input className="saw-input" type="password" name="credential_2" autoComplete="new-password" placeholder="Optionnel"/></label>
-    </div>
-    <div className="saw-two">
-      <label><div className="saw-label">{provider.credentialFields[2] ?? "Identifiant complémentaire"}</div><input className="saw-input" type="password" name="credential_3" autoComplete="new-password" placeholder="Optionnel"/></label>
-      <label><div className="saw-label">{provider.credentialFields[3] ?? "Identifiant complémentaire"}</div><input className="saw-input" type="password" name="credential_4" autoComplete="new-password" placeholder="Optionnel"/></label>
-    </div>
+    {provider.key === "cj_dropshipping" ? (
+      <>
+        <div className="saw-two">
+          <label><div className="saw-label">CJ API Key {c ? "(laisser vide = conserver)" : "(requis)"}</div><input className="saw-input" type="password" name="credential_1" autoComplete="new-password" placeholder={c ? "••••••••••••" : "Clé API CJ"}/></label>
+          <label><div className="saw-label">Access Token {c ? "(laisser vide = conserver)" : "(optionnel)"}</div><input className="saw-input" type="password" name="credential_2" autoComplete="new-password" placeholder="Token CJ"/></label>
+        </div>
+        <div className="saw-two">
+          <label><div className="saw-label">Refresh Token {c ? "(laisser vide = conserver)" : "(optionnel)"}</div><input className="saw-input" type="password" name="credential_3" autoComplete="new-password" placeholder="Renouvellement serveur"/></label>
+          <label><div className="saw-label">OpenId {c ? "(laisser vide = conserver)" : "(recommandé pour webhook)"}</div><input className="saw-input" type="password" name="credential_4" autoComplete="new-password" placeholder="OpenId CJ"/></label>
+        </div>
+        <div className="saw-help">Le serveur peut échanger la clé API contre les tokens et les renouveler. L’OpenId reste chiffré côté serveur et sert à vérifier la signature webhook CJ.</div>
+      </>
+    ) : (
+      <>
+        <div className="saw-two">
+          <label><div className="saw-label">{provider.credentialFields[0] ?? "Identifiant principal"} {c ? "(laisser vide = conserver)" : ""}</div><input className="saw-input" type="password" name="credential_1" autoComplete="new-password" placeholder={c ? "••••••••••••" : "Identifiant / secret"} /></label>
+          <label><div className="saw-label">{provider.credentialFields[1] ?? "Identifiant secondaire"}</div><input className="saw-input" type="password" name="credential_2" autoComplete="new-password" placeholder="Optionnel"/></label>
+        </div>
+        <div className="saw-two">
+          <label><div className="saw-label">{provider.credentialFields[2] ?? "Identifiant complémentaire"}</div><input className="saw-input" type="password" name="credential_3" autoComplete="new-password" placeholder="Optionnel"/></label>
+          <label><div className="saw-label">{provider.credentialFields[3] ?? "Identifiant complémentaire"}</div><input className="saw-input" type="password" name="credential_4" autoComplete="new-password" placeholder="Optionnel"/></label>
+        </div>
+      </>
+    )}
 
     {provider.integrationMode !== "generic_rest" ? (
       <>
@@ -196,7 +212,7 @@ function ConnectionForm({ c }: { c?: Connection }) {
         <div className="saw-three">
           <label><div className="saw-label">Nom du transporteur CJ</div><input className="saw-input" name="cj_logistic_name" defaultValue={String(c?.config?.cj_logistic_name ?? "")} placeholder="Nom exact retourné par CJ"/></label>
           <label><div className="saw-label">Pays d’expédition</div><input className="saw-input" name="cj_from_country_code" defaultValue={String(c?.config?.cj_from_country_code ?? "CN")} maxLength={2}/></label>
-          <label><div className="saw-label">Shop Logistics Type</div><select className="saw-select" name="cj_shop_logistics_type" defaultValue={String(c?.config?.cj_shop_logistics_type ?? 3)}><option value="1">1 · CJ Logistics</option><option value="2">2 · Third-party Logistics</option><option value="3">3 · Other Logistics</option></select></label>
+          <label><div className="saw-label">Shop Logistics Type</div><select className="saw-select" name="cj_shop_logistics_type" defaultValue={String(c?.config?.cj_shop_logistics_type ?? 2)}><option value="1">1 · Platform logistics</option><option value="2">2 · Merchant logistics (recommandé)</option><option value="3">3 · Platform logistics + entrepôt CJ</option></select></label>
         </div>
         <div className="saw-three">
           <label><div className="saw-label">Platform</div><input className="saw-input" name="cj_platform" defaultValue={String(c?.config?.cj_platform ?? "Api")}/></label>
@@ -207,7 +223,7 @@ function ConnectionForm({ c }: { c?: Connection }) {
           <label><div className="saw-label">Referer API (optionnel)</div><input className="saw-input" name="cj_referer" defaultValue={String(c?.config?.cj_referer ?? "")}/></label>
           <label className="saw-check" style={{paddingTop:20}}><input type="checkbox" name="sandbox_enabled" defaultChecked={c?.sandbox_enabled ?? false}/><span>Mode sandbox CJ pour les tests de commande</span></label>
         </div>
-        <div className="saw-help">Le premier test valide le token et l’accès API. L’auto-commande reste bloquée tant que la connexion n’est pas validée.</div>
+        <div className="saw-help">Pour l’auto-commande, utilisez payType 2 (paiement par solde CJ). Le mode 3 crée la commande sans la payer et reste réservé à un traitement manuel.</div>
       </div>
     ) : null}
 
