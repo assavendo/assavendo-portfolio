@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { randomBytes } from "node:crypto";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
@@ -54,9 +55,9 @@ const mappingSchema = z.object({
   max_retail_eur: z.preprocess((v) => v === "" || v === null || v === undefined ? undefined : Number(v), z.number().min(0.5).max(100000).optional()),
 });
 
-function done(message: string) {
+function done(message: string): never {
   revalidatePath("/admin/dropshipping");
-  return message;
+  redirect("/admin/dropshipping?ok=" + encodeURIComponent(message));
 }
 
 function parseTemplate(value: string) {
