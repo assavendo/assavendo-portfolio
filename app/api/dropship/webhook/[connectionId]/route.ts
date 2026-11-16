@@ -47,9 +47,9 @@ async function processWebhookEvent(
   try {
     if (providerKey === "cj_dropshipping") {
       const params = parseJsonObject(getByPath(payload, "params"));
-      if (/product|stock|inventory|price/i.test(eventType)) {
+      if (/product|variant|stock|inventory|price/i.test(eventType)) {
         await syncSupplierConnection(connectionId, "webhook");
-      } else if (/order|logistics|fulfilment|fulfillment|shipment/i.test(eventType)) {
+      } else if (/order|logistic|fulfilment|fulfillment|shipment/i.test(eventType)) {
         const externalId = String(
           params.orderId ??
           params.cjOrderId ??
@@ -60,7 +60,16 @@ async function processWebhookEvent(
           getByPath(payload, "cjOrderId") ??
           "",
         );
-        const externalStatus = String(params.orderStatus ?? params.status ?? getByPath(payload, "orderStatus") ?? "submitted");
+        const cjTrackingStatus = Number(params.trackingStatus);
+        const externalStatus = cjTrackingStatus === 12
+          ? "DELIVERED"
+          : cjTrackingStatus >= 1 && cjTrackingStatus <= 11
+            ? "SHIPPED"
+            : cjTrackingStatus === 14
+              ? "CANCELLED"
+              : cjTrackingStatus === 13
+                ? "DELIVERY_EXCEPTION"
+                : String(params.orderStatus ?? params.status ?? getByPath(payload, "orderStatus") ?? "submitted");
         const trackingNumber = String(params.trackNumber ?? params.trackingNumber ?? params.cjTrackingNumber ?? getByPath(payload, "trackNumber") ?? getByPath(payload, "trackingNumber") ?? "");
         const trackingUrl = String(params.trackingUrl ?? getByPath(payload, "trackingUrl") ?? "");
         if (externalId) {
@@ -99,9 +108,9 @@ async function processWebhookEvent(
           await refreshSupplierOrders(5);
         }
       }
-    } else if (/inventory|stock|product|price/i.test(eventType)) {
+    } else if (/inventory|stock|product|variant|price/i.test(eventType)) {
       await syncSupplierConnection(connectionId, "webhook");
-    } else if (/order|shipment|fulfilment|fulfillment/i.test(eventType)) {
+    } else if (/order|logistic|shipment|fulfilment|fulfillment/i.test(eventType)) {
       const externalId = String(getByPath(payload, "order_id") ?? getByPath(payload, "order.id") ?? "");
       if (externalId) {
         const { data: supplierOrder } = await db.from("supplier_orders").select("id,order_id").eq("supplier_connection_id", connectionId).eq("external_order_id", externalId).maybeSingle();
