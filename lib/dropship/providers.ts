@@ -52,9 +52,9 @@ export const SUPPLIER_PROVIDERS: SupplierProviderProfile[] = [
     officialUrl: "https://cjdropshipping.com",
     docsUrl: "https://developers.cjdropshipping.com/en/api/start/",
     capabilities: { catalog:true, inventory:true, orders:true, orderStatus:true, tracking:true, webhooks:true, sandbox:true, repricing:true },
-    credentialFields: ["API Key", "Access Token / Refresh Token (server-managed)", "openId for webhook verification"],
+    credentialFields: ["API Key", "Access Token (optionnel)", "Refresh Token (optionnel)", "OpenId (optionnel)"],
     setupSteps: ["Installer l’app API CJ", "Créer la clé API", "Échanger la clé contre les tokens", "Configurer les webhooks signés", "Tester le sandbox puis synchroniser"],
-    notes: "Connecteur natif prioritaire. Les appels API utilisent le token CJ et les webhooks HMAC-SHA256.",
+    notes: "Adaptateur natif API 2.0. Les tokens sont renouvelés côté serveur; les webhooks CJ utilisent le header sign, HMAC-SHA256 et le secret openId.",
   },
   {
     key: "hypersku",
