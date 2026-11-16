@@ -201,12 +201,13 @@ export async function checkSupplierOrderStatus(connectionId: string, externalOrd
   raw: unknown;
 }> {
   const connection = await getConnection(connectionId);
-  if (!connection.order_status_path) throw new Error("Supplier status path is not configured.");
-  const path = String(renderTemplate(connection.order_status_path, { ...context, external_order_id: externalOrderId }));
+  const endpointTemplate = typeof connection.config?.order_status_endpoint_template === "string" ? connection.config.order_status_endpoint_template : null;
+  if (!endpointTemplate) throw new Error("Supplier status endpoint is not configured.");
+  const path = String(renderTemplate(endpointTemplate, { ...context, external_order_id: externalOrderId }));
   const url = safeEndpoint(connection.base_url, path);
   const raw = await requestJson(connection, url, "GET", {});
   return {
-    external_status: stringValue(getByPath(raw, connection.order_status_path) ?? getByPath(raw, "status"), 120),
+    external_status: connection.order_status_path ? stringValue(getByPath(raw, connection.order_status_path) ?? getByPath(raw, "status"), 120) : stringValue(getByPath(raw, "status"), 120),
     tracking_number: connection.order_tracking_number_path ? stringValue(getByPath(raw, connection.order_tracking_number_path), 120) : null,
     tracking_url: connection.order_tracking_url_path ? stringValue(getByPath(raw, connection.order_tracking_url_path), 600) : null,
     raw,
