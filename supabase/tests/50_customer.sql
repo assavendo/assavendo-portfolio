@@ -52,10 +52,12 @@ do $$
 begin
   begin
     insert into public.return_requests (order_id, order_item_id, email, reason)
-    select order_id, id, 'pay@exemple.fr', 'other'
-    from public.order_items
-    where title = 'Casque de test'
-    order by id
+    select oi.order_id, oi.id, 'pay@exemple.fr', 'other'
+    from public.order_items oi
+    join public.orders o on o.id = oi.order_id
+    where oi.title = 'Casque de test'
+      and o.customer_email = 'pay@exemple.fr'
+    order by o.created_at desc, oi.id
     limit 1;
     raise exception 'ÉCHEC : second retour en cours accepté';
   exception when unique_violation then null;
