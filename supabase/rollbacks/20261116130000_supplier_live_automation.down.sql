@@ -1,0 +1,10 @@
+drop table if exists public.supplier_webhook_events;
+drop table if exists public.supplier_order_items;
+drop table if exists public.supplier_orders;
+drop table if exists public.supplier_order_groups;
+drop table if exists public.supplier_sync_runs;
+drop table if exists public.supplier_price_history;
+drop table if exists public.supplier_inventory_snapshots;
+drop table if exists public.product_supplier_mappings;
+drop table if exists public.supplier_connections;
+drop table if exists public.supplier_job_locks;
