@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../../supabase/server.ts";
-import { decryptSupplierSecret, encryptSupplierSecret } from "@/lib/dropship/crypto";
+import { decryptSupplierSecret, encryptSupplierSecret } from "../crypto.ts";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, SupplierAdapter } from "./types";
 
 type CjCredentials = {
