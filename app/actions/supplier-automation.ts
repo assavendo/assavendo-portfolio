@@ -132,6 +132,7 @@ export async function saveSupplierConnection(form: FormData) {
     enabled: Boolean(parsed.data.id) ? undefined : false,
     auto_order_enabled: (provider.integrationMode === "generic_rest" || isCj) ? parsed.data.auto_order_enabled === "on" : false,
     webhook_enabled: parsed.data.webhook_enabled === "on",
+    sandbox_enabled: isCj && parsed.data.sandbox_enabled === "on",
     sync_interval_seconds: parsed.data.sync_interval_seconds,
     inventory_method: parsed.data.inventory_method,
     inventory_path: parsed.data.inventory_path || null,
