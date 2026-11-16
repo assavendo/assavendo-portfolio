@@ -122,6 +122,7 @@ function ProviderSummary({ providerKey }: { providerKey: string }) {
 function ConnectionForm({ c }: { c?: Connection }) {
   const [providerKey, setProviderKey] = useState(c?.provider_key ?? "custom_rest");
   const provider = useMemo(() => getSupplierProvider(providerKey), [providerKey]);
+  const requiresRestMapping = provider.integrationMode === "generic_rest";
   const template = c?.order_payload_template ? JSON.stringify(c.order_payload_template, null, 2) : JSON.stringify({
     reference: "{{order.order_number}}",
     email: "{{customer.email}}",
@@ -149,7 +150,7 @@ function ConnectionForm({ c }: { c?: Connection }) {
 
     <div className="saw-note">Le profil décrit le mode d’intégration réel du fournisseur. Une API partenaire ou une plateforme gérée n’est pas transformée artificiellement en API directe : Assavendo conserve le bon statut et exige l’autorisation nécessaire avant l’automatisation.</div>
 
-    <div className="saw-two"><label><div className="saw-label">Base API HTTPS</div><input className="saw-input" name="base_url" defaultValue={c?.base_url ?? ""} placeholder="https://api.fournisseur.com" required/></label><label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label></div>
+    <div className="saw-two"><label><div className="saw-label">Base API HTTPS</div><input className="saw-input" name="base_url" defaultValue={c?.base_url ?? ""} placeholder="https://api.fournisseur.com" required={requiresRestMapping}/></label><label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label></div>
 
     <div className="saw-two">
       <label><div className="saw-label">{provider.credentialFields[0] ?? "Identifiant principal"} {c ? "(laisser vide = conserver)" : ""}</div><input className="saw-input" type="password" name="credential_1" autoComplete="new-password" placeholder={c ? "••••••••••••" : "Identifiant / secret"} /></label>
@@ -166,14 +167,14 @@ function ConnectionForm({ c }: { c?: Connection }) {
     <details>
       <summary style={{fontSize:".6rem",color:"rgba(255,255,255,.45)",cursor:"pointer"}}>Configuration avancée REST / feed</summary>
       <div className="saw-form" style={{marginTop:10}}>
-        <div className="saw-two"><label><div className="saw-label">Inventaire — méthode</div><select className="saw-select" name="inventory_method" defaultValue={c?.inventory_method ?? "GET"}><option>GET</option><option>POST</option></select></label><label><div className="saw-label">Inventaire — chemin</div><input className="saw-input" name="inventory_path" defaultValue={c?.inventory_path ?? "/inventory"} required/></label></div>
+        <div className="saw-two"><label><div className="saw-label">Inventaire — méthode</div><select className="saw-select" name="inventory_method" defaultValue={c?.inventory_method ?? "GET"}><option>GET</option><option>POST</option></select></label><label><div className="saw-label">Inventaire — chemin</div><input className="saw-input" name="inventory_path" defaultValue={c?.inventory_path ?? "/inventory"} required={requiresRestMapping}/></label></div>
         <div className="saw-three">
-          <label><div className="saw-label">Liste JSON</div><input className="saw-input" name="inventory_response_path" defaultValue={c?.inventory_response_path ?? "items"} required/></label>
-          <label><div className="saw-label">SKU fournisseur</div><input className="saw-input" name="inventory_sku_path" defaultValue={c?.inventory_sku_path ?? "sku"} required/></label>
-          <label><div className="saw-label">Stock</div><input className="saw-input" name="inventory_qty_path" defaultValue={c?.inventory_qty_path ?? "quantity"} required/></label>
+          <label><div className="saw-label">Liste JSON</div><input className="saw-input" name="inventory_response_path" defaultValue={c?.inventory_response_path ?? "items"} required={requiresRestMapping}/></label>
+          <label><div className="saw-label">SKU fournisseur</div><input className="saw-input" name="inventory_sku_path" defaultValue={c?.inventory_sku_path ?? "sku"} required={requiresRestMapping}/></label>
+          <label><div className="saw-label">Stock</div><input className="saw-input" name="inventory_qty_path" defaultValue={c?.inventory_qty_path ?? "quantity"} required={requiresRestMapping}/></label>
         </div>
         <div className="saw-three"><label><div className="saw-label">Prix</div><input className="saw-input" name="inventory_price_path" defaultValue={c?.inventory_price_path ?? ""} placeholder="price"/></label><label><div className="saw-label">Devise</div><input className="saw-input" name="inventory_currency_path" defaultValue={c?.inventory_currency_path ?? ""} placeholder="currency"/></label><label><div className="saw-label">Disponible</div><input className="saw-input" name="inventory_available_path" defaultValue={c?.inventory_available_path ?? ""} placeholder="available"/></label></div>
-        <div className="saw-two"><label><div className="saw-label">Commande — méthode</div><select className="saw-select" name="order_method" defaultValue={c?.order_method ?? "POST"}><option>POST</option><option>PUT</option></select></label><label><div className="saw-label">Commande — chemin</div><input className="saw-input" name="order_path" defaultValue={c?.order_path ?? "/orders"} required/></label></div>
+        <div className="saw-two"><label><div className="saw-label">Commande — méthode</div><select className="saw-select" name="order_method" defaultValue={c?.order_method ?? "POST"}><option>POST</option><option>PUT</option></select></label><label><div className="saw-label">Commande — chemin</div><input className="saw-input" name="order_path" defaultValue={c?.order_path ?? "/orders"} required={requiresRestMapping}/></label></div>
         <div className="saw-three"><label><div className="saw-label">ID externe retour</div><input className="saw-input" name="order_response_id_path" defaultValue={c?.order_response_id_path ?? ""}/></label><label><div className="saw-label">Statut retour</div><input className="saw-input" name="order_status_path" defaultValue={c?.order_status_path ?? ""}/></label><label><div className="saw-label">Suivi retour</div><input className="saw-input" name="order_tracking_number_path" defaultValue={c?.order_tracking_number_path ?? ""}/></label></div>
         <div className="saw-two"><label><div className="saw-label">URL suivi retour</div><input className="saw-input" name="order_tracking_url_path" defaultValue={c?.order_tracking_url_path ?? ""}/></label><label><div className="saw-label">Endpoint statut</div><input className="saw-input" name="order_status_endpoint_template" defaultValue={String(c?.config?.order_status_endpoint_template ?? "")} placeholder="/orders/{{external_order_id}}"/></label></div>
         <label><div className="saw-label">Template JSON de commande</div><textarea className="saw-textarea" name="order_payload_template" defaultValue={template}/></label>
