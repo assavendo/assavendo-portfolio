@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 type Props = {
   action: (formData: FormData) => Promise<void>;
@@ -14,7 +14,7 @@ export default function AiRequestForm({ action, fieldLabel, placeholder, buttonL
   const locked = useRef(false);
   const submissionId = useRef(crypto.randomUUID());
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (locked.current) {
       event.preventDefault();
       return;
