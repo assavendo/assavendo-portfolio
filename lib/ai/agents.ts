@@ -157,10 +157,30 @@ export async function createDraftProduct(p: Proposal, options: { images?: { url:
   const db = supabaseAdmin();
   const slug = `${slugify(p.title) || "produit"}-${Math.random().toString(36).slice(2, 6)}`;
   const { data, error } = await db.from("products").insert({ ...(options.productId ? { id: options.productId } : {}), slug, title: p.title, summary: p.summary, description: p.description, kind: p.kind, price_cents: Math.round(p.price_eur * 100), features: p.features, tags: p.tags, images: options.images ?? [], status: "draft", ...(options.supplier ? { seller_type: "supplier", track_stock: true, stock_qty: 0 } : {}) }).select("id").single();
-  if (!error) return data.id;
-  if (options.productId) {
+  let productId: string | null = null;
+  if (!error && data?.id) productId = String(data.id);
+  if (!productId && options.productId) {
     const { data: existing } = await db.from("products").select("id").eq("id", options.productId).maybeSingle();
-    if (existing) return existing.id;
+    if (existing) productId = String(existing.id);
   }
-  return null;
-}
+  if (!productId) return null;
+
+  if (options.supplier && options.variants?.length) {
+    const { data: existingVariant } = await db.from("product_variants").select("id").eq("product_id", productId).limit(1).maybeSingle();
+    if (!existingVariant) {
+      const rows = options.variants.slice(0, 40).map((variant, index) => ({
+        product_id: productId,
+        sku: variant.sku ? variant.sku.slice(0, 100) : null,
+        label: (variant.label || "Variante").slice(0, 160),
+        options: variant.options && typeof variant.options === "object" ? variant.options : {},
+        price_cents: 0,
+        stock_qty: 0,
+        active: true,
+        sort: index,
+      }));
+      const { error: variantError } = await db.from("product_variants").insert(rows);
+      if (variantError) return null;
+    }
+  }
+
+  return productId;
