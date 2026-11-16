@@ -84,12 +84,25 @@ export async function queueSupplierOrders(orderId: string) {
     const maxOrder = Number(connection.config?.max_supplier_order_cents ?? 100000);
     if (totalCost > maxOrder) { needsReview = true; continue; }
 
-    let { data: orderGroup } = await db.from("supplier_order_groups").select("id,status").eq("order_id", orderId).maybeSingle();
-    if (!orderGroup) {
-      const created = await db.from("supplier_order_groups").insert({ order_id: orderId, status: needsReview ? "needs_review" : "processing" }).select("id").single();
+    let orderGroupId: string | null = null;
+    const { data: existingOrderGroup } = await db.from("supplier_order_groups")
+      .select("id")
+      .eq("order_id", orderId)
+      .maybeSingle();
+    if (existingOrderGroup?.id) {
+      orderGroupId = String(existingOrderGroup.id);
+      if (needsReview) {
+        await db.from("supplier_order_groups").update({ status: "needs_review" }).eq("id", orderGroupId);
+      }
+    } else {
+      const created = await db.from("supplier_order_groups")
+        .insert({ order_id: orderId, status: needsReview ? "needs_review" : "processing" })
+        .select("id")
+        .single();
       if (created.error || !created.data) throw created.error ?? new Error("Unable to create supplier order group.");
-      orderGroup = created.data;
+      orderGroupId = String(created.data.id);
     }
+    if (!orderGroupId) throw new Error("Supplier order group id missing.");
 
     const idempotencyKey = orderId + ":" + connectionId;
     const { data: existingSupplierOrder } = await db.from("supplier_orders")
@@ -108,7 +121,7 @@ export async function queueSupplierOrders(orderId: string) {
     }
 
     const { data: supplierOrder, error: supplierOrderError } = await db.from("supplier_orders").insert({
-      order_group_id: orderGroup.id,
+      order_group_id: orderGroupId,
       supplier_connection_id: connectionId,
       order_id: orderId,
       status: needsReview ? "needs_review" : "queued",
