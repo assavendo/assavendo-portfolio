@@ -133,6 +133,11 @@ function configString(connection: AdapterConnection, key: string, fallback = "")
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function destinationCountry(orderContext: Record<string, unknown>): string {
+  const shipping = (orderContext.shipping ?? {}) as Record<string, unknown>;
+  return String(shipping.countryCode ?? shipping.country ?? "").trim().toUpperCase();
+}
+
 async function fetchVariant(connection: AdapterConnection, accessToken: string, sku: string) {
   const rows = await cjFetch<CjVariant[]>(
     connection,
