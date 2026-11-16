@@ -79,7 +79,7 @@ export async function queueSupplierOrders(orderId: string) {
     if (!connection || !connection.auto_order_enabled || !connection.enabled) { needsReview = true; continue; }
     for (const group of groupItems) {
       for (const item of group.items) {
-        if (!isFresh(group.mapping, connection.config?.sync_interval_seconds ? Number(connection.config.sync_interval_seconds) : 900)) needsReview = true;
+        if (!isFresh(group.mapping, Number(connection.sync_interval_seconds ?? 900))) needsReview = true;
       }
     }
     const totalCost = groupItems.reduce((sum, group) => sum + group.items.reduce((s, item) => s + (group.mapping.supplier_cost_cents ?? 0) * item.qty, 0), 0);
@@ -166,8 +166,10 @@ function statusClass(status: string | null): string {
 
 async function dispatchOne(supplierOrderId: string) {
   const db = supabaseAdmin();
+  const { data: currentRow } = await db.from("supplier_orders").select("attempts").eq("id", supplierOrderId).maybeSingle();
+  const nextAttempt = Number(currentRow?.attempts ?? 0) + 1;
   const claim = await db.from("supplier_orders")
-    .update({ status: "submitting", attempts: 1, last_attempt_at: new Date().toISOString() })
+    .update({ status: "submitting", attempts: nextAttempt, last_attempt_at: new Date().toISOString() })
     .eq("id", supplierOrderId)
     .in("status", ["queued","failed"])
     .select("id,order_id,supplier_connection_id,client_reference,attempts");
@@ -201,6 +203,9 @@ async function dispatchOne(supplierOrderId: string) {
 
   if (result.external_order_id && (status === "submitted" || status === "confirmed" || status === "processing")) {
     await db.from("orders").update({ fulfilment: "preparing" }).eq("id", current.order_id).eq("status", "paid").in("fulfilment", ["none","to_prepare"]);
+    await db.from("supplier_order_groups").update({ status: "processing" }).eq("order_id", current.order_id);
+  } else if (!result.external_order_id) {
+    await db.from("supplier_order_groups").update({ status: "needs_review" }).eq("order_id", current.order_id);
   }
   return { submitted: Boolean(result.external_order_id), externalOrderId: result.external_order_id };
 }
@@ -244,6 +249,8 @@ export async function refreshSupplierOrders(limit = 10) {
           delivered_at: klass === "delivered" ? new Date().toISOString() : undefined,
         }).eq("id", row.order_id);
       }
+      if (klass === "delivered") await db.from("supplier_order_groups").update({ status: "complete" }).eq("order_id", row.order_id);
+      else if (klass === "shipped") await db.from("supplier_order_groups").update({ status: "processing" }).eq("order_id", row.order_id);
       results.push({ id: row.id, status: klass });
     } catch (error) {
       results.push({ id: row.id, error: error instanceof Error ? error.message : "status refresh failed" });
