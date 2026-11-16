@@ -52,13 +52,16 @@ async function processWebhookEvent(
       } else if (/order|logistics|fulfilment|fulfillment|shipment/i.test(eventType)) {
         const externalId = String(
           params.orderId ??
+          params.cjOrderId ??
           params.orderNumber ??
           params.orderCode ??
+          params.cjOrderCode ??
           getByPath(payload, "orderId") ??
+          getByPath(payload, "cjOrderId") ??
           "",
         );
         const externalStatus = String(params.orderStatus ?? params.status ?? getByPath(payload, "orderStatus") ?? "submitted");
-        const trackingNumber = String(params.trackNumber ?? params.trackingNumber ?? getByPath(payload, "trackNumber") ?? "");
+        const trackingNumber = String(params.trackNumber ?? params.trackingNumber ?? params.cjTrackingNumber ?? getByPath(payload, "trackNumber") ?? getByPath(payload, "trackingNumber") ?? "");
         const trackingUrl = String(params.trackingUrl ?? getByPath(payload, "trackingUrl") ?? "");
         if (externalId) {
           const { data: supplierOrder } = await db
@@ -67,21 +70,30 @@ async function processWebhookEvent(
             .eq("supplier_connection_id", connectionId)
             .eq("external_order_id", externalId)
             .maybeSingle();
-          if (supplierOrder) {
+          const orderNumberFromEvent = String(params.orderNumber ?? params.orderNum ?? getByPath(payload, "orderNumber") ?? getByPath(payload, "orderNum") ?? "");
+          const resolvedSupplierOrder = supplierOrder ?? (orderNumberFromEvent
+            ? (await db.from("supplier_orders")
+                .select("id,order_id,external_order_id")
+                .eq("supplier_connection_id", connectionId)
+                .eq("client_reference", orderNumberFromEvent)
+                .maybeSingle()).data
+            : null);
+          if (resolvedSupplierOrder) {
             const klass = statusFromExternal(externalStatus);
             await db.from("supplier_orders").update({
+              external_order_id: externalId || resolvedSupplierOrder.external_order_id || null,
               status: klass,
               external_status: externalStatus,
               tracking_number: trackingNumber || null,
               tracking_url: trackingUrl || null,
               response_payload: payload && typeof payload === "object" ? payload : {},
-            }).eq("id", supplierOrder.id);
+            }).eq("id", resolvedSupplierOrder.id);
             await db.from("orders").update({
               fulfilment: klass === "delivered" ? "delivered" : klass === "shipped" ? "shipped" : "preparing",
               tracking_number: trackingNumber || null,
               tracking_url: trackingUrl || null,
               delivered_at: klass === "delivered" ? new Date().toISOString() : null,
-            }).eq("id", supplierOrder.order_id).eq("status", "paid");
+            }).eq("id", resolvedSupplierOrder.order_id).eq("status", "paid");
           }
         } else {
           await refreshSupplierOrders(5);
