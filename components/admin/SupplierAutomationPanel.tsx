@@ -169,6 +169,27 @@ function ConnectionForm({ c }: { c?: Connection }) {
       <label><div className="saw-label">{provider.credentialFields[3] ?? "Identifiant complémentaire"}</div><input className="saw-input" type="password" name="credential_4" autoComplete="new-password" placeholder="Optionnel"/></label>
     </div>
 
+    {provider.integrationMode !== "generic_rest" ? (
+      <>
+        <input type="hidden" name="inventory_method" value="GET"/>
+        <input type="hidden" name="inventory_path" value=""/>
+        <input type="hidden" name="inventory_response_path" value=""/>
+        <input type="hidden" name="inventory_sku_path" value=""/>
+        <input type="hidden" name="inventory_qty_path" value=""/>
+        <input type="hidden" name="inventory_price_path" value=""/>
+        <input type="hidden" name="inventory_currency_path" value=""/>
+        <input type="hidden" name="inventory_available_path" value=""/>
+        <input type="hidden" name="order_method" value="POST"/>
+        <input type="hidden" name="order_path" value=""/>
+        <input type="hidden" name="order_response_id_path" value=""/>
+        <input type="hidden" name="order_status_path" value=""/>
+        <input type="hidden" name="order_tracking_number_path" value=""/>
+        <input type="hidden" name="order_tracking_url_path" value=""/>
+        <input type="hidden" name="order_status_endpoint_template" value=""/>
+        <input type="hidden" name="order_payload_template" value={template}/>
+      </>
+    ) : null}
+
     {provider.key === "cj_dropshipping" ? (
       <div className="saw-section" style={{padding:"12px 0"}}>
         <div className="saw-title"><h3>Configuration CJdropshipping</h3><span className="saw-pill">API 2.0</span></div>
