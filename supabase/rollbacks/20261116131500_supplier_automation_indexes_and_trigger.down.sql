@@ -1,0 +1,12 @@
+drop index if exists public.supplier_orders_order_group_idx;
+drop index if exists public.supplier_order_items_order_item_idx;
+drop index if exists public.supplier_order_items_mapping_idx;
+drop index if exists public.supplier_inventory_snapshots_connection_idx;
+drop index if exists public.supplier_connections_created_by_idx;
+drop index if exists public.product_supplier_mappings_variant_idx;
+drop trigger if exists supplier_connections_touch on public.supplier_connections;
+drop trigger if exists product_supplier_mappings_touch on public.product_supplier_mappings;
+drop trigger if exists supplier_order_groups_touch on public.supplier_order_groups;
+drop trigger if exists supplier_orders_touch on public.supplier_orders;
+drop trigger if exists supplier_order_items_touch on public.supplier_order_items;
+drop function if exists public.supplier_touch_updated_at();
