@@ -227,7 +227,7 @@ async function dispatchOne(supplierOrderId: string) {
   if (claim.error || !(claim.data ?? []).length) return { skipped: true };
   const current = claim.data[0];
 
-  const { data: order } = await db.from("orders").select("id,order_number,status,customer_email,shipping,billing,currency,amount_cents,fulfilment").eq("id", current.order_id).maybeSingle();
+  const { data: order } = await db.from("orders").select("id,order_number,created_at,status,customer_email,shipping,billing,currency,amount_cents,fulfilment").eq("id", current.order_id).maybeSingle();
   const { data: items } = await db.from("supplier_order_items").select("id,external_sku,external_product_id,quantity,supplier_unit_cost_cents,currency,order_items(title,variant_label)").eq("supplier_order_id", supplierOrderId);
   const connection = await loadSupplierConnection(current.supplier_connection_id);
   if (!order || order.status !== "paid" || !connection.enabled || !connection.auto_order_enabled || !items?.length) {
