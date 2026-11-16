@@ -7,21 +7,21 @@ import { decryptSupplierSecret } from "./crypto";
 type Connection = {
   id: string;
   name: string;
-  base_url: string;
+  base_url: string | null;
   enabled: boolean;
   auto_order_enabled: boolean;
   webhook_enabled: boolean;
   sync_interval_seconds: number;
   inventory_method: "GET" | "POST";
-  inventory_path: string;
-  inventory_response_path: string;
-  inventory_sku_path: string;
-  inventory_qty_path: string;
+  inventory_path: string | null;
+  inventory_response_path: string | null;
+  inventory_sku_path: string | null;
+  inventory_qty_path: string | null;
   inventory_price_path: string | null;
   inventory_currency_path: string | null;
   inventory_available_path: string | null;
   order_method: "POST" | "PUT";
-  order_path: string;
+  order_path: string | null;
   order_response_id_path: string | null;
   order_status_path: string | null;
   order_tracking_number_path: string | null;
@@ -46,7 +46,7 @@ export type SupplierInventoryRecord = {
   raw: unknown;
 };
 
-const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,sync_interval_seconds,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
+const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,sync_interval_seconds,provider_key,integration_mode,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
 
 
 function stringValue(value: unknown, max = 500): string | null {
@@ -132,6 +132,12 @@ export async function loadSupplierConnection(id: string): Promise<Connection> {
 export async function fetchInventory(connectionId: string, context: Record<string, unknown> = {}): Promise<{ connection: Connection; records: SupplierInventoryRecord[] }> {
   const connection = await getConnection(connectionId);
   if (!connection.enabled) throw new Error("Supplier connection is disabled.");
+  if (connection.integration_mode && connection.integration_mode !== "generic_rest") {
+    throw new Error(`Le fournisseur ${connection.name} utilise le profil ${connection.integration_mode}. Son adaptateur natif/partenaire doit être activé avant la synchronisation REST.`);
+  }
+  if (!connection.base_url || !connection.inventory_path || !connection.inventory_response_path || !connection.inventory_sku_path || !connection.inventory_qty_path) {
+    throw new Error("Configuration REST fournisseur incomplète.");
+  }
   const query = (connection.config.inventory_query && typeof connection.config.inventory_query === "object")
     ? renderTemplate(connection.config.inventory_query, context) as Record<string, unknown>
     : undefined;
@@ -162,6 +168,10 @@ export async function callSupplierOrder(connectionId: string, orderContext: Reco
 }> {
   const connection = await getConnection(connectionId);
   if (!connection.enabled || !connection.auto_order_enabled) throw new Error("Supplier auto-order is disabled.");
+  if (connection.integration_mode && connection.integration_mode !== "generic_rest") {
+    throw new Error(`Le fournisseur ${connection.name} utilise le profil ${connection.integration_mode}. Son adaptateur natif/partenaire doit être activé avant l’envoi automatique.`);
+  }
+  if (!connection.base_url || !connection.order_path) throw new Error("Configuration REST de commande fournisseur incomplète.");
   const payload = renderTemplate(connection.order_payload_template, orderContext);
   const url = safeEndpoint(connection.base_url, String(renderTemplate(connection.order_path, orderContext)));
   const raw = await requestJson(connection, url, connection.order_method, payload, idempotencyKey);
