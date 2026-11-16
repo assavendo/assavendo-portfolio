@@ -52,7 +52,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
   const priceChanged = cost !== null && cost !== oldCost;
   const stockChanged = qty !== oldQty;
   const availabilityChanged = available !== oldAvailable;
-  let changed = priceChanged || stockChanged || availabilityChanged;
+  const changed = priceChanged || stockChanged || availabilityChanged;
 
   if (mapping.variant_id) {
     const { data: variant } = await db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle();
