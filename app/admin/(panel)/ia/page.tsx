@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { requireAdmin } from "@/lib/admin";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { PRESETS, ROLES } from "@/lib/ai/policy";
+import AiConversationStudio from "@/components/admin/ai-conversation-studio";
 import AiRequestForm from "@/components/admin/ai-request-form";
 import {
-  addKey, askProduct, askResearch, keyAction, saveAgent
+  addKey, askProduct, askResearch, keyAction, saveAgent, sendAiConversationMessage, renameAiConversation, deleteAiConversation
 } from "@/app/actions/ai";
 import {
   addManusAccount, decideAiApproval, resolveAiIncident, runAiBenchmark, saveAiBudget, saveAiModel, saveAiPolicy, saveAiWorkflow, setAgentTool, setAiMode,
@@ -18,7 +20,7 @@ const money = (n: number | null | undefined) => (n == null ? "—" : new Intl.Nu
 const h2 = { fontSize: "1.2rem" } as const;
 const statusClass = (status: string) => status === "healthy" || status === "active" || status === "approved" ? "s-published" : status === "disabled" || status === "deprecated" ? "s-draft" : "s-draft";
 
-export default async function CentreIA({ searchParams }: { searchParams: Promise<{ ok?: string; erreur?: string }> }) {
+export default async function CentreIA({ searchParams }: { searchParams: Promise<{ ok?: string; erreur?: string; conversation?: string }> }) {
   await requireAdmin();
   const sp = await searchParams;
   const db = supabaseAdmin();
@@ -45,7 +47,7 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     { data: incidents },
     { data: runs },
     { data: auditLogs },
-    { data: notes },
+    { data: conversations },
   ] = await Promise.all([
     db.from("ai_settings").select("*").eq("id", 1).single(),
     db.from("ai_control_state").select("*").eq("id", 1).single(),
@@ -80,6 +82,13 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
   const healthyProviders = (providers ?? []).filter((p) => p.enabled && p.status === "healthy").length;
   const masterOk = Boolean(process.env.AI_MASTER_KEY);
   const mode = String(control?.mode ?? (settings?.enabled ? "FULL" : "NO_AI"));
+  const selectedConversationId = /^[0-9a-f-]{36}$/i.test(String(sp.conversation ?? "")) ? String(sp.conversation) : null;
+  const selectedConversation = (conversations ?? []).find((c) => c.id === selectedConversationId) ?? null;
+  const { data: conversationMessages } = selectedConversationId
+    ? await db.from("ai_conversation_messages").select("id,role,content,provider_slug,model_key,latency_ms,estimated_cost_usd,created_at,metadata").eq("conversation_id", selectedConversationId).order("created_at", { ascending: true }).limit(100)
+    : { data: [] };
+  const conversationSubmissionId = randomUUID();
+
 
   return <div>
     <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -316,24 +325,18 @@ export default async function CentreIA({ searchParams }: { searchParams: Promise
     </section>
 
     <section className="panel">
-      <h2 style={h2}>14. Agents existants · demandes et approbations historiques</h2>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:".8rem" }}>
-        <AiRequestForm
-          action={askResearch}
-          fieldLabel="Recherche produit / catalogue"
-          placeholder="Ex. analyse des catégories qui manquent"
-          buttonLabel="Lancer"
-          submissionId={researchSubmissionId}
-        />
-        <AiRequestForm
-          action={askProduct}
-          fieldLabel="Nouvelle fiche produit"
-          placeholder="Décrire la fiche à préparer"
-          buttonLabel="Proposer"
-          submissionId={productSubmissionId}
-        />
-      </div>
-      {(notes ?? []).map((n) => <div key={n.id} className="panel"><p className="muted small">{n.title} · {fmt(n.created_at)}</p><p style={{ whiteSpace:"pre-wrap" }}>{String(n.result?.text ?? "")}</p></div>)}
+      <h2 style={h2}>14. AI Workspace · conversations et réponses</h2>
+      <p className="muted small" style={{ marginBottom: ".9rem" }}>Un espace conversationnel persistant pour les demandes IA, avec historique, reprise de discussion, animation de génération, copie des réponses, renommage et suppression.</p>
+      <AiConversationStudio
+        conversations={conversations ?? []}
+        messages={conversationMessages ?? []}
+        selectedConversationId={selectedConversationId}
+        selectedAgent={selectedConversation?.agent_slug ?? "recherche"}
+        submissionId={conversationSubmissionId}
+        sendAction={sendAiConversationMessage}
+        renameAction={renameAiConversation}
+        deleteAction={deleteAiConversation}
+      />
     </section>
 
     <section className="panel">
