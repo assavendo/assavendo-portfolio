@@ -205,6 +205,9 @@ export async function deleteAiConversation(form: FormData) {
     resource_type: "ai_conversation",
     resource_id: id.data,
     policy_decision: "ALLOW",
+    metadata: {},
+    timestamp: new Date().toISOString(),
+    created_at: new Date().toISOString(),
   });
   const { error } = await db.from("ai_conversations").delete().eq("id", id.data);
   if (error) return back("La discussion n'a pas pu être supprimée.", "erreur");
