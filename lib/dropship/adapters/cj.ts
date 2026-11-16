@@ -234,7 +234,8 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
     );
     rawRows.push({
       external_sku: String(variant.variantSku ?? sku),
-      external_product_id: String(variant.vid),
+      external_product_id: String(variant.pid ?? ""),
+      external_variant_id: String(variant.vid ?? ""),
       supplier_qty: qty,
       supplier_price_cents: parseMoney(variant.variantSellPrice),
       supplier_currency: "USD",
@@ -290,10 +291,12 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
     })(),
     orderFlow: 1,
     products: items.map((item) => {
-      const vid = String(item.external_product_id ?? "").trim();
+      const variantId = String(item.external_variant_id ?? "").trim();
+      const productId = String(item.external_product_id ?? "").trim();
       const sku = String(item.sku ?? "").trim();
       return {
-        ...(vid ? { vid } : {}),
+        ...(variantId ? { vid: variantId } : {}),
+        ...(productId ? { pid: productId } : {}),
         ...(sku ? { sku } : {}),
         quantity: Number(item.quantity ?? 0),
         storeLineItemId: String(item.store_line_item_id ?? item.id ?? ""),
