@@ -66,7 +66,7 @@ async function processWebhookEvent(
         if (externalId) {
           const { data: supplierOrder } = await db
             .from("supplier_orders")
-            .select("id,order_id")
+            .select("id,order_id,external_order_id")
             .eq("supplier_connection_id", connectionId)
             .eq("external_order_id", externalId)
             .maybeSingle();
