@@ -40,20 +40,24 @@ rollback;
 
 -- retours : une seule demande en cours par ligne
 insert into public.return_requests (order_id, order_item_id, email, reason)
-select order_id, id, 'pay@exemple.fr', 'defective'
-from public.order_items
-where title = 'Casque de test'
-order by id
+select oi.order_id, oi.id, 'pay@exemple.fr', 'defective'
+from public.order_items oi
+join public.orders o on o.id = oi.order_id
+where oi.title = 'Casque de test'
+  and o.customer_email = 'pay@exemple.fr'
+order by o.created_at desc, oi.id
 limit 1;
 
 do $$
 begin
   begin
     insert into public.return_requests (order_id, order_item_id, email, reason)
-    select order_id, id, 'pay@exemple.fr', 'other'
-    from public.order_items
-    where title = 'Casque de test'
-    order by id
+    select oi.order_id, oi.id, 'pay@exemple.fr', 'other'
+    from public.order_items oi
+    join public.orders o on o.id = oi.order_id
+    where oi.title = 'Casque de test'
+      and o.customer_email = 'pay@exemple.fr'
+    order by o.created_at desc, oi.id
     limit 1;
     raise exception 'ÉCHEC : second retour en cours accepté';
   exception when unique_violation then null;
@@ -98,10 +102,12 @@ end $$;
 update public.return_requests set status = 'refused';
 select pg_temp.assert((select count(*) = 1 from (select 1 from public.return_requests) x), 'demande refusée conservée');
 insert into public.return_requests (order_id, order_item_id, email, reason)
-select order_id, id, 'pay@exemple.fr', 'other'
-from public.order_items
-where title = 'Casque de test'
-order by id
+select oi.order_id, oi.id, 'pay@exemple.fr', 'other'
+from public.order_items oi
+join public.orders o on o.id = oi.order_id
+where oi.title = 'Casque de test'
+  and o.customer_email = 'pay@exemple.fr'
+order by o.created_at desc, oi.id
 limit 1;
 
 -- campagne post-achat : invitation créée au paiement et activée après livraison physique

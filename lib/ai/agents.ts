@@ -72,7 +72,7 @@ async function claimManualSubmission(input: {
 }
 
 /** Recherche : note d'analyse en lecture seule (aucune écriture dans le catalogue). */
-export async function research(request: string, submissionId = randomUUID()): Promise<{ ok: boolean; note: string }> {
+export async function research(request: string, submissionId: string = randomUUID()): Promise<{ ok: boolean; note: string }> {
   const a = await agent("recherche"); if (!a) return { ok: false, note: "Agent recherche désactivé." };
 
   const claim = await claimManualSubmission({
@@ -102,7 +102,7 @@ export async function research(request: string, submissionId = randomUUID()): Pr
 }
 
 /** Catalogue : propose une fiche. Rien n'est créé tant que l'administrateur ne l'a pas approuvée. */
-export async function proposeProduct(instructions: string, submissionId = randomUUID()): Promise<{ ok: boolean; note: string }> {
+export async function proposeProduct(instructions: string, submissionId: string = randomUUID()): Promise<{ ok: boolean; note: string }> {
   const a = await agent("catalogue"); if (!a) return { ok: false, note: "Agent catalogue désactivé." };
 
   const claim = await claimManualSubmission({
