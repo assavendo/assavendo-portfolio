@@ -65,7 +65,7 @@ select pg_temp.assert(
   'stock produit décrémenté après réservation'
 );
 select pg_temp.assert(
-  (select row_security from pg_catalog.pg_tables where schemaname = 'public' and tablename = 'supplier_connections'),
+  (select rowsecurity from pg_catalog.pg_tables where schemaname = 'public' and tablename = 'supplier_connections'),
   'RLS fournisseur activée'
 );
 select pg_temp.assert(
