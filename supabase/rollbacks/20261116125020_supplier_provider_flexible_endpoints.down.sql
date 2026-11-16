@@ -1,10 +1,7 @@
 begin;
-alter table public.supplier_connections alter column base_url set not null;
-alter table public.supplier_connections alter column inventory_path set not null;
-alter table public.supplier_connections alter column inventory_response_path set not null;
-alter table public.supplier_connections alter column inventory_sku_path set not null;
-alter table public.supplier_connections alter column inventory_qty_path set not null;
-alter table public.supplier_connections alter column order_path set not null;
-alter table public.supplier_connections drop constraint if exists supplier_connections_base_url_check;
-alter table public.supplier_connections add constraint supplier_connections_base_url_check check (base_url ~ '^https://');
+
+-- The forward migration is intentionally deferred because supplier_connections
+-- is created later by 20261116130000_supplier_live_automation.sql.
+-- There is therefore nothing to roll back here independently.
+
 commit;
