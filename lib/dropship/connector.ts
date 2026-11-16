@@ -46,6 +46,7 @@ type Connection = {
 
 export type SupplierInventoryRecord = {
   external_sku: string;
+  external_product_id?: string | null;
   supplier_qty: number | null;
   supplier_price_cents: number | null;
   supplier_currency: string | null;
