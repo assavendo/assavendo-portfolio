@@ -6,7 +6,7 @@ const items = [
   ["/admin/problemes", "Problèmes"],
   ["/admin/produits", "Produits"],
   ["/admin/collections", "Collections"],
-  ["/admin/dropshipping", "Import fournisseur"],
+  ["/admin/dropshipping", "Fournisseurs & automatisation"],
   ["/admin/aide", "Centre d'aide"],
   ["/admin/support", "Support"],
   ["/admin/moderation", "Modération"],
