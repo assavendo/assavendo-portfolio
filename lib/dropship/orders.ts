@@ -93,7 +93,6 @@ export async function queueSupplierOrders(orderId: string) {
     groups.set(chosen.supplier_connection_id, list);
   }
 
-  const connectionIds = [...groups.keys()];
   let queued = 0;
   for (const [connectionId, groupItems] of groups) {
     const connection = connections.get(connectionId);
