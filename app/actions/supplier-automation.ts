@@ -59,6 +59,8 @@ const mappingSchema = z.object({
   markup_eur: z.coerce.number().min(0).max(100000),
   min_retail_eur: z.coerce.number().min(0.5).max(100000),
   max_retail_eur: z.preprocess((v) => v === "" || v === null || v === undefined ? undefined : Number(v), z.number().min(0.5).max(100000).optional()),
+  priority: z.coerce.number().int().min(1).max(10000).default(100),
+  destination_countries: z.string().optional().or(z.literal("")),
 });
 
 function done(message: string): never {
