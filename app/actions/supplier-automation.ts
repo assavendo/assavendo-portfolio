@@ -11,6 +11,8 @@ import { fetchInventory } from "@/lib/dropship/connector";
 import { dispatchSupplierOrders } from "@/lib/dropship/orders";
 import { syncSupplierConnection } from "@/lib/dropship/sync";
 import { getSupplierProvider } from "@/lib/dropship/providers";
+import { getSupplierAdapter } from "@/lib/dropship/adapters";
+import { loadSupplierConnection } from "@/lib/dropship/connector";
 
 const connectionSchema = z.object({
   id: z.string().uuid().optional().or(z.literal("")),
@@ -45,6 +47,14 @@ const connectionSchema = z.object({
   auto_order_enabled: z.string().optional(),
   webhook_enabled: z.string().optional(),
   max_supplier_order_eur: z.coerce.number().min(0.5).max(100000),
+  sandbox_enabled: z.string().optional(),
+  cj_logistic_name: z.string().trim().max(180).optional().or(z.literal("")),
+  cj_from_country_code: z.string().trim().length(2).optional().or(z.literal("")),
+  cj_shop_logistics_type: z.coerce.number().int().min(1).max(3).optional(),
+  cj_platform: z.string().trim().max(80).optional().or(z.literal("")),
+  cj_store_name: z.string().trim().max(180).optional().or(z.literal("")),
+  cj_pay_type: z.coerce.number().int().min(2).max(3).optional(),
+  cj_referer: z.string().trim().max(500).optional().or(z.literal("")),
 });
 
 const mappingSchema = z.object({
@@ -88,8 +98,31 @@ export async function saveSupplierConnection(form: FormData) {
     if (!parsed.data.base_url) throw new Error("Une connexion REST personnalisée exige une Base API HTTPS.");
     if (!parsed.data.inventory_path || !parsed.data.inventory_response_path || !parsed.data.inventory_sku_path || !parsed.data.inventory_qty_path || !parsed.data.order_path) throw new Error("Complétez les endpoints REST d’inventaire et de commande pour le connecteur personnalisé.");
   }
-  const credentials = [parsed.data.credential_1, parsed.data.credential_2, parsed.data.credential_3, parsed.data.credential_4].filter(Boolean);
-  const primarySecret = parsed.data.credential_1 || parsed.data.api_secret || "";
+  const isCj = provider.key === "cj_dropshipping";
+  const cjCredentials = isCj ? {
+    apiKey: parsed.data.credential_1 || undefined,
+    accessToken: parsed.data.credential_2 || undefined,
+    refreshToken: parsed.data.credential_3 || undefined,
+    openId: parsed.data.credential_4 || undefined,
+  } : null;
+  const genericCredentials = [parsed.data.credential_1, parsed.data.credential_2, parsed.data.credential_3, parsed.data.credential_4].filter(Boolean);
+  const hasCjCredentials = Boolean(cjCredentials && Object.values(cjCredentials).some(Boolean));
+  const credentialBundle = isCj
+    ? (hasCjCredentials ? cjCredentials : null)
+    : (genericCredentials.length ? { credentials: genericCredentials } : null);
+  const primarySecret = isCj
+    ? (parsed.data.credential_2 || parsed.data.credential_1 || "")
+    : (parsed.data.credential_1 || parsed.data.api_secret || "");
+  const cjConfig = isCj ? {
+    base_currency: "EUR",
+    cj_logistic_name: parsed.data.cj_logistic_name || null,
+    cj_from_country_code: (parsed.data.cj_from_country_code || "CN").toUpperCase(),
+    cj_shop_logistics_type: parsed.data.cj_shop_logistics_type ?? 3,
+    cj_platform: parsed.data.cj_platform || "Api",
+    cj_store_name: parsed.data.cj_store_name || null,
+    cj_pay_type: parsed.data.cj_pay_type ?? 2,
+    cj_referer: parsed.data.cj_referer || null,
+  } : {};
   const row = {
     name: parsed.data.name,
     adapter: provider.adapterKey,
@@ -97,11 +130,12 @@ export async function saveSupplierConnection(form: FormData) {
     integration_mode: provider.integrationMode,
     provider_capabilities: provider.capabilities,
     docs_url: provider.docsUrl,
-    credentials_ciphertext: credentials.length ? encryptSupplierSecret(JSON.stringify(credentials)) : undefined,
+    credentials_ciphertext: credentialBundle ? encryptSupplierSecret(JSON.stringify(credentialBundle)) : undefined,
     base_url: parsed.data.base_url ? parsed.data.base_url.replace(/\/+$/, "") : null,
     enabled: Boolean(parsed.data.id) ? undefined : false,
-    auto_order_enabled: provider.integrationMode === "generic_rest" ? parsed.data.auto_order_enabled === "on" : false,
+    auto_order_enabled: (provider.integrationMode === "generic_rest" || isCj) ? parsed.data.auto_order_enabled === "on" : false,
     webhook_enabled: parsed.data.webhook_enabled === "on",
+    sandbox_enabled: isCj && parsed.data.sandbox_enabled === "on",
     sync_interval_seconds: parsed.data.sync_interval_seconds,
     inventory_method: parsed.data.inventory_method,
     inventory_path: parsed.data.inventory_path || null,
@@ -119,9 +153,11 @@ export async function saveSupplierConnection(form: FormData) {
     order_tracking_url_path: parsed.data.order_tracking_url_path || null,
     order_payload_template: template,
     auth_header: parsed.data.auth_header,
-    auth_prefix: parsed.data.auth_prefix,
+    auth_prefix: isCj ? "" : parsed.data.auth_prefix,
     secret_ciphertext: primarySecret ? encryptSupplierSecret(primarySecret) : undefined,
-    webhook_secret_ciphertext: parsed.data.webhook_secret ? encryptSupplierSecret(parsed.data.webhook_secret) : undefined,
+    webhook_secret_ciphertext: isCj
+      ? (parsed.data.credential_4 ? encryptSupplierSecret(parsed.data.credential_4) : undefined)
+      : (parsed.data.webhook_secret ? encryptSupplierSecret(parsed.data.webhook_secret) : undefined),
     config: {
       max_supplier_order_cents: Math.round(parsed.data.max_supplier_order_eur * 100),
       order_status_endpoint_template: parsed.data.order_status_endpoint_template || null,
@@ -129,6 +165,7 @@ export async function saveSupplierConnection(form: FormData) {
       order_response_status_path: parsed.data.order_status_path || null,
       order_response_tracking_number_path: parsed.data.order_tracking_number_path || null,
       order_response_tracking_url_path: parsed.data.order_tracking_url_path || null,
+      ...cjConfig,
     },
     created_by: user.id,
   };
@@ -142,6 +179,7 @@ export async function saveSupplierConnection(form: FormData) {
 
   const requiresCredential = !["feed","managed_platform","directory"].includes(provider.integrationMode);
   if (requiresCredential && !primarySecret) throw new Error("Ajoutez le premier identifiant/secret demandé par le fournisseur pour créer la connexion.");
+  if (isCj && !parsed.data.cj_logistic_name && parsed.data.auto_order_enabled === "on") throw new Error("Configurez le transporteur CJ avant d'activer les commandes automatiques.");
   const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
   if (error || !data) throw new Error("Connexion fournisseur impossible : " + (error?.message ?? "inconnue"));
   return done("Connexion fournisseur créée. Testez-la avant d'activer la synchronisation.");
@@ -151,7 +189,18 @@ export async function toggleSupplierConnection(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
   const enabled = String(form.get("enabled") ?? "") === "true";
-  const { error } = await supabaseAdmin().from("supplier_connections").update({ enabled, status: enabled ? "degraded" : "disabled" }).eq("id", id);
+  const db = supabaseAdmin();
+  const { data: connection, error: readError } = await db.from("supplier_connections")
+    .select("status,adapter")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !connection) throw new Error("Connexion fournisseur introuvable.");
+  if (enabled && connection.adapter && connection.status !== "healthy") {
+    throw new Error("Testez et validez le connecteur avant son activation.");
+  }
+  const { error } = await db.from("supplier_connections")
+    .update({ enabled, status: enabled ? "healthy" : "disabled" })
+    .eq("id", id);
   if (error) throw new Error("Impossible de modifier l'état du connecteur : " + error.message);
   return done(enabled ? "Connecteur activé." : "Connecteur désactivé.");
 }
@@ -160,6 +209,17 @@ export async function testSupplierConnection(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
   try {
+    const connection = await loadSupplierConnection(id);
+    const adapter = getSupplierAdapter(connection.adapter);
+    if (adapter) {
+      const result = await adapter.testConnection(connection as never);
+      await supabaseAdmin().from("supplier_connections").update({
+        status: "healthy",
+        last_success_at: new Date().toISOString(),
+        last_error: null,
+      }).eq("id", id);
+      return done("Test réussi : " + (result.detail ?? "fournisseur connecté."));
+    }
     const result = await fetchInventory(id, { test: true, timestamp: new Date().toISOString() });
     await supabaseAdmin().from("supplier_connections").update({ status: "healthy", last_success_at: new Date().toISOString(), last_error: null }).eq("id", id);
     return done("Test réussi : " + result.records.length + " référence(s) fournisseur lue(s).");

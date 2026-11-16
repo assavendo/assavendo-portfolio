@@ -46,6 +46,7 @@ type Connection = {
   integration_mode?: string | null;
   docs_url?: string | null;
   provider_capabilities?: Record<string, unknown> | null;
+  sandbox_enabled?: boolean;
 };
 
 type Mapping = {
@@ -150,7 +151,14 @@ function ConnectionForm({ c }: { c?: Connection }) {
 
     <div className="saw-note">Le profil décrit le mode d’intégration réel du fournisseur. Une API partenaire ou une plateforme gérée n’est pas transformée artificiellement en API directe : Assavendo conserve le bon statut et exige l’autorisation nécessaire avant l’automatisation.</div>
 
-    <div className="saw-two"><label><div className="saw-label">Base API HTTPS</div><input className="saw-input" name="base_url" defaultValue={c?.base_url ?? ""} placeholder="https://api.fournisseur.com" required={requiresRestMapping}/></label><label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label></div>
+    <div className="saw-two">
+      {provider.key === "cj_dropshipping" ? (
+        <div className="saw-note" style={{marginBottom:0}}>CJ utilise son API 2.0 officielle. L’URL, l’en-tête <span className="saw-code">CJ-Access-Token</span>, le renouvellement des tokens et la signature webhook sont gérés par l’adaptateur natif.</div>
+      ) : provider.integrationMode === "generic_rest" ? (
+        <label><div className="saw-label">Base API HTTPS</div><input className="saw-input" name="base_url" defaultValue={c?.base_url ?? ""} placeholder="https://api.fournisseur.com" required={requiresRestMapping}/></label>
+      ) : <div className="saw-help">Ce profil ne nécessite pas d’URL REST générique. La connexion dépend du protocole officiel du fournisseur.</div>}
+      <label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label>
+    </div>
 
     <div className="saw-two">
       <label><div className="saw-label">{provider.credentialFields[0] ?? "Identifiant principal"} {c ? "(laisser vide = conserver)" : ""}</div><input className="saw-input" type="password" name="credential_1" autoComplete="new-password" placeholder={c ? "••••••••••••" : "Identifiant / secret"} /></label>
@@ -161,9 +169,49 @@ function ConnectionForm({ c }: { c?: Connection }) {
       <label><div className="saw-label">{provider.credentialFields[3] ?? "Identifiant complémentaire"}</div><input className="saw-input" type="password" name="credential_4" autoComplete="new-password" placeholder="Optionnel"/></label>
     </div>
 
-    <div className="saw-two"><label><div className="saw-label">Secret webhook</div><input className="saw-input" type="password" name="webhook_secret" autoComplete="new-password" placeholder={c ? "••••••••••••" : "Secret de signature webhook"} /></label><label><div className="saw-label">En-tête d’authentification REST</div><input className="saw-input" name="auth_header" defaultValue={c?.auth_header ?? (provider.key === "cj_dropshipping" ? "CJ-Access-Token" : "Authorization")}/></label></div>
-    <div className="saw-two"><label><div className="saw-label">Préfixe d’authentification</div><input className="saw-input" name="auth_prefix" defaultValue={c?.auth_prefix ?? (provider.key === "cj_dropshipping" ? "" : "Bearer")}/></label><div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="webhook_enabled" defaultChecked={c?.webhook_enabled ?? true}/><span>Activer les webhooks lorsque le fournisseur les autorise</span></label></div></div>
+    {provider.integrationMode !== "generic_rest" ? (
+      <>
+        <input type="hidden" name="inventory_method" value="GET"/>
+        <input type="hidden" name="inventory_path" value=""/>
+        <input type="hidden" name="inventory_response_path" value=""/>
+        <input type="hidden" name="inventory_sku_path" value=""/>
+        <input type="hidden" name="inventory_qty_path" value=""/>
+        <input type="hidden" name="inventory_price_path" value=""/>
+        <input type="hidden" name="inventory_currency_path" value=""/>
+        <input type="hidden" name="inventory_available_path" value=""/>
+        <input type="hidden" name="order_method" value="POST"/>
+        <input type="hidden" name="order_path" value=""/>
+        <input type="hidden" name="order_response_id_path" value=""/>
+        <input type="hidden" name="order_status_path" value=""/>
+        <input type="hidden" name="order_tracking_number_path" value=""/>
+        <input type="hidden" name="order_tracking_url_path" value=""/>
+        <input type="hidden" name="order_status_endpoint_template" value=""/>
+        <input type="hidden" name="order_payload_template" value={template}/>
+      </>
+    ) : null}
 
+    {provider.key === "cj_dropshipping" ? (
+      <div className="saw-section" style={{padding:"12px 0"}}>
+        <div className="saw-title"><h3>Configuration CJdropshipping</h3><span className="saw-pill">API 2.0</span></div>
+        <div className="saw-three">
+          <label><div className="saw-label">Nom du transporteur CJ</div><input className="saw-input" name="cj_logistic_name" defaultValue={String(c?.config?.cj_logistic_name ?? "")} placeholder="Nom exact retourné par CJ"/></label>
+          <label><div className="saw-label">Pays d’expédition</div><input className="saw-input" name="cj_from_country_code" defaultValue={String(c?.config?.cj_from_country_code ?? "CN")} maxLength={2}/></label>
+          <label><div className="saw-label">Shop Logistics Type</div><select className="saw-select" name="cj_shop_logistics_type" defaultValue={String(c?.config?.cj_shop_logistics_type ?? 3)}><option value="1">1 · CJ Logistics</option><option value="2">2 · Third-party Logistics</option><option value="3">3 · Other Logistics</option></select></label>
+        </div>
+        <div className="saw-three">
+          <label><div className="saw-label">Platform</div><input className="saw-input" name="cj_platform" defaultValue={String(c?.config?.cj_platform ?? "Api")}/></label>
+          <label><div className="saw-label">Store name (optionnel)</div><input className="saw-input" name="cj_store_name" defaultValue={String(c?.config?.cj_store_name ?? "")}/></label>
+          <label><div className="saw-label">Paiement CJ</div><select className="saw-select" name="cj_pay_type" defaultValue={String(c?.config?.cj_pay_type ?? 2)}><option value="2">2 · Solde CJ</option><option value="3">3 · Créer seulement</option></select></label>
+        </div>
+        <div className="saw-two">
+          <label><div className="saw-label">Referer API (optionnel)</div><input className="saw-input" name="cj_referer" defaultValue={String(c?.config?.cj_referer ?? "")}/></label>
+          <label className="saw-check" style={{paddingTop:20}}><input type="checkbox" name="sandbox_enabled" defaultChecked={c?.sandbox_enabled ?? false}/><span>Mode sandbox CJ pour les tests de commande</span></label>
+        </div>
+        <div className="saw-help">Le premier test valide le token et l’accès API. L’auto-commande reste bloquée tant que la connexion n’est pas validée.</div>
+      </div>
+    ) : null}
+
+    {provider.integrationMode === "generic_rest" ? (
     <details>
       <summary style={{fontSize:".6rem",color:"rgba(255,255,255,.45)",cursor:"pointer"}}>Configuration avancée REST / feed</summary>
       <div className="saw-form" style={{marginTop:10}}>
@@ -180,6 +228,7 @@ function ConnectionForm({ c }: { c?: Connection }) {
         <label><div className="saw-label">Template JSON de commande</div><textarea className="saw-textarea" name="order_payload_template" defaultValue={template}/></label>
       </div>
     </details>
+    ) : null}
 
     <div className="saw-three">
       <label><div className="saw-label">Plafond achat fournisseur (€)</div><input className="saw-input" type="number" step="0.01" name="max_supplier_order_eur" defaultValue={Number(c?.config?.max_supplier_order_cents ?? 100000)/100}/></label>
