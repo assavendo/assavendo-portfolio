@@ -133,7 +133,7 @@ export async function saveSupplierConnection(form: FormData) {
   const primarySecret = isCj
     ? String(cjCredentials?.accessToken ?? cjCredentials?.apiKey ?? "")
     : (parsed.data.credential_1 || parsed.data.api_secret || "");
-  const cjConfig = isCj ? {
+  const cjConfig: Record<string, unknown> = isCj ? {
     ...existingCjConfig,
     base_currency: "EUR",
     cj_logistic_name: parsed.data.cj_logistic_name || existingCjConfig.cj_logistic_name || null,
