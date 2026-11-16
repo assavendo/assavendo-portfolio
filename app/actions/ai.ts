@@ -397,7 +397,7 @@ export async function decideTask(form: FormData) {
   if (t.kind === "product_proposal") {
     const p = parseProposal(JSON.stringify(t.payload)); if (!p.ok) return back(p.error, "erreur");
     if (importId) {
-      const { data: source } = await db.from("dropship_imports").select("id,status,rights_confirmed,images,product_id").eq("id", importId).maybeSingle();
+      const { data: source } = await db.from("dropship_imports").select("id,status,rights_confirmed,images,extracted,product_id").eq("id", importId).maybeSingle();
       if (!source || !source.rights_confirmed) return back("Import absent ou droits non confirmés; aucun produit n'a été créé.", "erreur");
       if (source.product_id) {
         if (source.status !== "approved" && source.status !== "needs_review") return back("L'import lié a changé d'état; vérifiez-le avant toute reprise.", "erreur");
@@ -421,7 +421,15 @@ export async function decideTask(form: FormData) {
 
       const sourceImages = (Array.isArray(source.images) ? source.images : []) as { url?: string; alt?: string; credit?: string; kind?: string }[];
       const premium = sourceImages.find((image) => image.kind === "premium" && image.url && isAllowedImageUrl(image.url));
-      const createdId = await createDraftProduct({ ...p.value, kind: "physical", price_eur: 0 }, { supplier: true, productId: pid, images: premium ? [{ url: premium.url!, alt: premium.alt || `Photo du produit ${p.value.title}`, credit: premium.credit }] : [] });
+      const extracted = (source.extracted && typeof source.extracted === "object" ? source.extracted : {}) as Record<string, unknown>;
+      const variants = (Array.isArray(extracted.variants) ? extracted.variants : []).filter((variant): variant is { label?: string; sku?: string; options?: Record<string, string>; supplier_price?: number | null; availability?: string } => Boolean(variant && typeof variant === "object")) .slice(0, 40).map((variant) => ({
+        label: typeof variant.label === "string" ? variant.label : "Variante",
+        sku: typeof variant.sku === "string" ? variant.sku : "",
+        options: variant.options && typeof variant.options === "object" ? variant.options : {},
+        supplier_price: typeof variant.supplier_price === "number" ? variant.supplier_price : null,
+        availability: typeof variant.availability === "string" ? variant.availability : "",
+      }));
+      const createdId = await createDraftProduct({ ...p.value, kind: "physical", price_eur: 0 }, { supplier: true, productId: pid, variants, images: premium ? [{ url: premium.url!, alt: premium.alt || `Photo du produit ${p.value.title}`, credit: premium.credit }] : [] });
       if (!createdId) return back("Produit non créé; l'identifiant réservé est conservé pour reprendre sans doublon.", "erreur");
       const { data: linked, error: linkError } = await db.from("dropship_imports").update({ status: "approved", product_id: createdId, decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at, error: null }).eq("id", importId).eq("status", "needs_review").select("id").maybeSingle();
       if (linkError || !linked) return back("Le brouillon est conservé avec un identifiant réservé; relancez l'approbation pour terminer le lien.", "erreur");
