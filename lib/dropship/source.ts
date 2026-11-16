@@ -19,6 +19,7 @@ export type SupplierProduct = {
   currency: string;
   availability: string;
   images: SupplierImage[];
+  variants: SupplierVariant[];
   content_sha256: string;
 };
 
