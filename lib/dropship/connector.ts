@@ -143,7 +143,16 @@ export async function fetchInventory(connectionId: string, context: Record<strin
   if (!connection.enabled) throw new Error("Supplier connection is disabled.");
   const adapter = getSupplierAdapter(connection.adapter);
   if (adapter) {
-    const records = await adapter.fetchInventory(connection as AdapterConnection, externalSkus);
+    const adapterConnection: AdapterConnection = {
+      ...(connection as AdapterConnection),
+      config: {
+        ...connection.config,
+        ...(Array.isArray((context as Record<string, unknown>).mapping_hints)
+          ? { __supplier_inventory_hints: (context as Record<string, unknown>).mapping_hints }
+          : {}),
+      },
+    };
+    const records = await adapter.fetchInventory(adapterConnection, externalSkus);
     return { connection, records };
   }
   if (connection.integration_mode && connection.integration_mode !== "generic_rest") {
