@@ -50,7 +50,7 @@ function percentChange(oldValue: number | null, nextValue: number | null): numbe
 
 
 
-async function acquireSupplierJobLock(jobKey: string, ttlSeconds = 55): Promise<string | null> {
+async function acquireSupplierJobLock(jobKey: string, ttlSeconds = 300): Promise<string | null> {
   const db = supabaseAdmin();
   const now = new Date();
   const until = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
@@ -191,7 +191,17 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
     if (mappingError) throw mappingError;
 
     const externalSkus = (mappings ?? []).map((mapping) => mapping.external_sku).filter(Boolean);
-    const { records, connection } = await fetchInventory(connectionId, { timestamp: new Date().toISOString() }, externalSkus);
+    const { records, connection } = await fetchInventory(
+      connectionId,
+      {
+        timestamp: new Date().toISOString(),
+        mapping_hints: (mappings ?? []).map((mapping) => ({
+          external_sku: mapping.external_sku,
+          external_product_id: mapping.external_product_id,
+        })),
+      },
+      externalSkus,
+    );
     const sourceCurrencies = [...new Set(records.map((record) => String(record.supplier_currency ?? "EUR").toUpperCase()).filter((currency) => currency !== "EUR"))];
     const fxRates = sourceCurrencies.length ? await getRatesToEur(sourceCurrencies) : {};
     const normalizedRecords = records.map((record) => {
@@ -242,7 +252,12 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
     return { connectionId, fetched: records.length, applied, changed, priceChanges, stockChanges, skipped: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Supplier synchronization failed.";
-    await db.from("supplier_connections").update({ status: "degraded", last_sync_at: new Date().toISOString(), last_error: message.slice(0, 1000) }).eq("id", connectionId);
+    const rateLimited = /CJ HTTP 429|1600200|QPS limit/i.test(message);
+    await db.from("supplier_connections").update({
+      status: rateLimited ? "rate_limited" : "degraded",
+      last_sync_at: new Date().toISOString(),
+      last_error: message.slice(0, 1000),
+    }).eq("id", connectionId);
     await db.from("supplier_sync_runs").update({ status: "failed", finished_at: new Date().toISOString(), error_count: 1, error: message.slice(0, 2000) }).eq("id", run.id);
     throw error;
   } finally {
