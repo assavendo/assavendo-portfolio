@@ -267,14 +267,17 @@ export async function testSupplierConnection(form: FormData) {
 export async function syncSupplierNow(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
+
+  let result: Awaited<ReturnType<typeof syncSupplierConnection>>;
   try {
-    const result = await syncSupplierConnection(id, "manual");
-    return done(`Synchronisation terminée : ${result.applied} référence(s) appliquée(s), ${result.changed} changement(s).`);
+    result = await syncSupplierConnection(id, "manual");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Synchronisation fournisseur échouée.";
     revalidatePath("/admin/dropshipping");
     redirect("/admin/dropshipping?erreur=" + encodeURIComponent("Synchronisation CJ échouée : " + message));
   }
+
+  return done(`Synchronisation terminée : ${result.applied} référence(s) appliquée(s), ${result.changed} changement(s).`);
 }
 
 export async function saveSupplierMapping(form: FormData) {
