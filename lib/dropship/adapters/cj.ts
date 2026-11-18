@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { decryptSupplierSecret, encryptSupplierSecret } from "../crypto.ts";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, SupplierAdapter } from "./types";
 
@@ -36,7 +37,55 @@ type CjVariant = {
   variantSellPrice?: number | string;
 };
 
+type CjProductInventory = {
+  variantInventories?: Array<{
+    vid?: string;
+    inventory?: Array<{
+      countryCode?: string;
+      totalInventory?: number;
+      cjInventory?: number;
+      factoryInventory?: number;
+    }> | null;
+  }>;
+};
+
 const CJ_BASE = "https://developers.cjdropshipping.com/api2.0/v1";
+const CJ_RATE_INTERVAL_MS = 1200;
+const CJ_MAX_RATE_RETRIES = 3;
+const CJ_TEST_MODE = process.env.NODE_ENV === "test" || process.env.SUPPLIER_CREDENTIAL_KEY === "test-only-supplier-key";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function acquireCjRateSlot(connectionId: string): Promise<void> {
+  if (CJ_TEST_MODE) return;
+  const db = (await import("../../supabase/server.ts")).supabaseAdmin();
+  const jobKey = "cj-rate:" + connectionId;
+
+  while (true) {
+    const now = new Date();
+    const lockedUntil = new Date(now.getTime() + CJ_RATE_INTERVAL_MS).toISOString();
+    const lockedBy = randomUUID();
+
+    const { data: refreshed, error: refreshError } = await db.from("supplier_job_locks")
+      .update({ locked_until: lockedUntil, locked_by: lockedBy })
+      .eq("job_key", jobKey)
+      .lte("locked_until", now.toISOString())
+      .select("job_key")
+      .maybeSingle();
+    if (refreshError) throw new Error("Impossible de réserver la cadence CJ : " + refreshError.message);
+    if (refreshed) return;
+
+    const { error: insertError } = await db.from("supplier_job_locks").insert({
+      job_key: jobKey,
+      locked_until: lockedUntil,
+      locked_by: lockedBy,
+    });
+    if (!insertError) return;
+    if (insertError.code !== "23505") throw new Error("Impossible de réserver la cadence CJ : " + insertError.message);
+
+    await sleep(100);
+  }
+}
 
 function credentials(connection: AdapterConnection): CjCredentials {
   const raw = decryptSupplierSecret(connection.credentials_ciphertext);
@@ -69,25 +118,37 @@ async function cjFetch<T>(
   }
   const headers: Record<string, string> = { accept: "application/json", "content-type": "application/json", ...extraHeaders };
   if (accessToken) headers["CJ-Access-Token"] = accessToken;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetch(url, {
-      method,
-      headers,
-      cache: "no-store",
-      redirect: "error",
-      signal: controller.signal,
-      ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
-    });
-    const text = await response.text();
-    if (!response.ok) throw new Error("CJ HTTP " + response.status + ": " + text.slice(0, 600));
-    let payload: CjResponse<T>;
-    try { payload = text ? JSON.parse(text) as CjResponse<T> : {}; } catch { throw new Error("Réponse CJ non JSON."); }
-    return validResponse(payload);
-  } finally {
-    clearTimeout(timeout);
+
+  for (let attempt = 0; attempt <= CJ_MAX_RATE_RETRIES; attempt += 1) {
+    await acquireCjRateSlot(connection.id);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: controller.signal,
+        ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
+      });
+      const text = await response.text();
+
+      if (response.status === 429) {
+        if (attempt < CJ_MAX_RATE_RETRIES) continue;
+        throw new Error("CJ HTTP 429: " + text.slice(0, 900));
+      }
+      if (!response.ok) throw new Error("CJ HTTP " + response.status + ": " + text.slice(0, 600));
+
+      let payload: CjResponse<T>;
+      try { payload = text ? JSON.parse(text) as CjResponse<T> : {}; } catch { throw new Error("Réponse CJ non JSON."); }
+      return validResponse(payload);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  throw new Error("CJ rate limit atteint après plusieurs tentatives.");
 }
 
 async function saveCredentials(connection: AdapterConnection, next: CjCredentials) {
@@ -196,6 +257,58 @@ async function fetchVariant(connection: AdapterConnection, accessToken: string, 
   };
 }
 
+async function fetchInventoryByProductId(
+  connection: AdapterConnection,
+  accessToken: string,
+  pid: string,
+): Promise<Map<string, { qty: number; raw: unknown }>> {
+  const variants = await cjFetch<CjVariant[]>(
+    connection,
+    "/product/variant/query",
+    "GET",
+    undefined,
+    { pid },
+    accessToken,
+  );
+  const inventory = await cjFetch<CjProductInventory>(
+    connection,
+    "/product/stock/getInventoryByPid",
+    "GET",
+    undefined,
+    { pid },
+    accessToken,
+  );
+
+  const quantityByVid = new Map(
+    (inventory?.variantInventories ?? []).map((row) => [
+      String(row.vid ?? ""),
+      {
+        qty: (Array.isArray(row.inventory) ? row.inventory : []).reduce(
+          (sum, area) => sum + Math.max(0, Number(area.totalInventory ?? 0)),
+          0,
+        ),
+        raw: row.inventory ?? [],
+      },
+    ] as const),
+  );
+  const result = new Map<string, { qty: number; raw: unknown }>();
+
+  for (const variant of Array.isArray(variants) ? variants : []) {
+    const sku = String(variant.variantSku ?? "").trim().toUpperCase();
+    if (!sku) continue;
+    const byVid = quantityByVid.get(String(variant.vid ?? ""));
+    result.set(sku, {
+      qty: byVid?.qty ?? 0,
+      raw: {
+        variant,
+        inventories: byVid?.raw ?? [],
+      },
+    });
+  }
+
+  return result;
+}
+
 async function testConnection(connection: AdapterConnection) {
   const { token } = await ensureAccessToken(connection);
   const data = await cjFetch<{ amount?: number }>(
@@ -216,9 +329,62 @@ async function testConnection(connection: AdapterConnection) {
 async function fetchInventory(connection: AdapterConnection, externalSkus: string[]): Promise<AdapterInventoryRecord[]> {
   const { token } = await ensureAccessToken(connection);
   const uniqueSkus = [...new Set(externalSkus.map((sku) => sku.trim()).filter(Boolean))].slice(0, 100);
-  const rawRows: AdapterInventoryRecord[] = [];
+  const hints = Array.isArray(connection.config?.__supplier_inventory_hints)
+    ? connection.config.__supplier_inventory_hints as Array<{ external_sku?: string; external_product_id?: string | null }>
+    : [];
+
+  const pidBySku = new Map(
+    hints
+      .map((hint) => [String(hint.external_sku ?? "").trim().toUpperCase(), String(hint.external_product_id ?? "").trim()] as const)
+      .filter(([sku, pid]) => Boolean(sku && pid)),
+  );
+  const unresolved = new Set(uniqueSkus.map((sku) => sku.toUpperCase()));
+  const records: AdapterInventoryRecord[] = [];
+
+  const groupedByPid = new Map<string, string[]>();
+  for (const sku of uniqueSkus) {
+    const pid = pidBySku.get(sku.toUpperCase());
+    if (!pid) continue;
+    const list = groupedByPid.get(pid) ?? [];
+    list.push(sku);
+    groupedByPid.set(pid, list);
+  }
+
+  for (const [pid, skus] of groupedByPid) {
+    try {
+      const bySku = await fetchInventoryByProductId(connection, token, pid);
+      for (const sku of skus) {
+        const normalizedSku = sku.toUpperCase();
+        const match = bySku.get(normalizedSku);
+        if (!match) continue;
+
+        const variant = bySku.get(normalizedSku)?.raw && typeof bySku.get(normalizedSku)?.raw === "object"
+          ? (bySku.get(normalizedSku)?.raw as Record<string, unknown>).variant as CjVariant | undefined
+          : undefined;
+        if (!variant?.vid) continue;
+
+        records.push({
+          external_sku: String(variant.variantSku ?? sku),
+          external_product_id: String(variant.pid ?? pid),
+          external_variant_id: String(variant.vid ?? ""),
+          supplier_qty: match.qty,
+          supplier_price_cents: parseMoney(variant.variantSellPrice),
+          supplier_currency: "USD",
+          available: match.qty > 0,
+          raw: { variant, inventories: match.raw, pid, batched: true },
+        });
+        unresolved.delete(normalizedSku);
+      }
+    } catch {
+      // A stale/invalid PID must not break the whole sync. Unresolved SKUs use the
+      // deterministic SKU fallback below, still protected by the global CJ rate gate.
+    }
+  }
 
   for (const sku of uniqueSkus) {
+    const normalizedSku = sku.toUpperCase();
+    if (!unresolved.has(normalizedSku)) continue;
+
     const variant = await fetchVariant(connection, token, sku);
     const inventories = await cjFetch<CjInventoryArea[]>(
       connection,
@@ -232,7 +398,7 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
       (sum, inventory) => sum + Math.max(0, Number(inventory.totalInventoryNum ?? 0)),
       0,
     );
-    rawRows.push({
+    records.push({
       external_sku: String(variant.variantSku ?? sku),
       external_product_id: String(variant.pid ?? ""),
       external_variant_id: String(variant.vid ?? ""),
@@ -240,11 +406,11 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
       supplier_price_cents: parseMoney(variant.variantSellPrice),
       supplier_currency: "USD",
       available: qty > 0,
-      raw: { variant, sku, inventories },
+      raw: { variant, sku, inventories, batched: false },
     });
   }
 
-  return rawRows;
+  return records;
 }
 
 function buildOrderPayload(connection: AdapterConnection, orderContext: Record<string, unknown>) {
