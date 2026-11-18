@@ -52,12 +52,14 @@ type CjProductInventory = {
 const CJ_BASE = "https://developers.cjdropshipping.com/api2.0/v1";
 const CJ_RATE_INTERVAL_MS = 1200;
 const CJ_MAX_RATE_RETRIES = 3;
-const CJ_TEST_MODE = process.env.NODE_ENV === "test" || process.env.SUPPLIER_CREDENTIAL_KEY === "test-only-supplier-key";
+function isCjTestMode(): boolean {
+  return process.env.NODE_ENV === "test" || process.env.SUPPLIER_CREDENTIAL_KEY === "test-only-supplier-key";
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function acquireCjRateSlot(connectionId: string): Promise<void> {
-  if (CJ_TEST_MODE) return;
+  if (isCjTestMode()) return;
   const db = (await import("../../supabase/server.ts")).supabaseAdmin();
   const jobKey = "cj-rate:" + connectionId;
 
