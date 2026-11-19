@@ -602,7 +602,7 @@ async function getShippingOptions(connection: AdapterConnection, context: Adapte
       weight: Math.max(1, Math.round(context.weightG)),
       volume: Math.max(0.001, Number(context.volumeCm3)),
       wrapWeight: Math.max(0, Math.round(context.wrapWeightG)),
-      totalGoodsAmount: Math.max(0.01, Number(context.totalGoodsAmountEur)),
+      totalGoodsAmount: Math.max(0.01, Number(context.totalGoodsAmountUsd)),
       productProp: context.productProperties.length ? context.productProperties : ["COMMON"],
       skuList: context.skuLines.map((line) => line.sku),
       freightTrialSkuList: context.skuLines.map((line) => ({
