@@ -16,13 +16,19 @@ import { toggleFavorite } from "@/app/actions/account";
 import { publicImageUrl } from "@/lib/images";
 
 export const dynamic = "force-dynamic";
+const LEGACY_SLUG_REDIRECTS: Record<string, string> = {
+  "lampe-led-detection-mouvement-magnetique-cj": "lampe-led-detection-mouvement-magnetique",
+};
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const slug = (await params).slug;
   const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) return {};
   return { title: p.title, description: p.summary, alternates: { canonical: `/boutique/${p.slug}` }, openGraph: { images: p.images[0]?.url ? [publicImageUrl(p.images[0].url, p.seller_type === "supplier")] : undefined } };
 }
 
-export default async function ProductPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
+export default async function ProductPage({
+  const legacyTarget = LEGACY_SLUG_REDIRECTS[slug];
+  if (legacyTarget) redirect(`/boutique/${legacyTarget}`); params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
   const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) notFound();
   const stats = await getProductStats(p.id);
