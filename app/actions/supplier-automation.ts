@@ -391,12 +391,13 @@ export async function recordManualSupplierOrder(form: FormData) {
   }).eq("id", id);
   if (error) throw new Error("Traitement manuel non enregistré : " + error.message);
 
-  const itemStatus = supplierStatus === "delivered" ? "delivered" : supplierStatus === "canceled" ? "canceled" : ["submitted","confirmed","processing","shipped"].includes(supplierStatus) ? "submitted" : supplierStatus;
+  const itemStatus = supplierStatus === "canceled" ? "canceled" : supplierStatus === "needs_review" ? "failed" : "submitted";
   const { error: itemError } = await db.from("supplier_order_items").update({ status: itemStatus }).eq("supplier_order_id", id);
   if (itemError) throw new Error("La commande fournisseur est enregistrée mais le statut de ses lignes n'a pas pu être synchronisé.");
 
   if (supplierStatus === "needs_review") {
-    await db.from("orders").update({ needs_review: true, review_note: parsed.data.manual_note || "Traitement fournisseur manuel en revue." }).eq("id", row.order_id);
+    const { error: orderError } = await db.from("orders").update({ needs_review: true, review_note: parsed.data.manual_note || "Traitement fournisseur manuel en revue." }).eq("id", row.order_id);
+    if (orderError) throw new Error("La commande client n'a pas pu être mise en revue : " + orderError.message);
   } else if (supplierStatus === "shipped" || supplierStatus === "delivered") {
     const fulfilment = supplierStatus === "delivered" ? "delivered" : "shipped";
     const { error: orderError } = await db.from("orders").update({
@@ -417,8 +418,10 @@ export async function recordManualSupplierOrder(form: FormData) {
     if (groupError) throw new Error("Le groupe fournisseur n'a pas pu être basculé en revue.");
   } else {
     const fulfilment = ["submitted","confirmed","processing"].includes(supplierStatus) ? "preparing" : "to_prepare";
-    await db.from("orders").update({ fulfilment }).eq("id", row.order_id).eq("status","paid");
-    await db.from("supplier_order_groups").update({ status: supplierStatus === "manual_pending" ? "manual_pending" : "processing" }).eq("order_id", row.order_id);
+    const { error: orderError } = await db.from("orders").update({ fulfilment }).eq("id", row.order_id).eq("status","paid");
+    if (orderError) throw new Error("Le statut de la commande client n'a pas pu être synchronisé.");
+    const { error: groupError } = await db.from("supplier_order_groups").update({ status: supplierStatus === "manual_pending" ? "pending" : "processing" }).eq("order_id", row.order_id);
+    if (groupError) throw new Error("Le groupe fournisseur n'a pas pu être synchronisé.");
   }
   return done("Traitement fournisseur manuel enregistré.");
 }
@@ -434,6 +437,7 @@ export async function retrySupplierOrder(form: FormData) {
   if (error) throw new Error("Impossible de remettre la commande fournisseur dans la file : " + error.message);
   await dispatchSupplierOrders(1);
   return done("Commande fournisseur automatique remise en traitement.");
+}
 
 export async function generateWebhookSecret() {
   await requireAdmin();
