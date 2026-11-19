@@ -31,7 +31,7 @@ export default async function Dropshipping({ searchParams }: { searchParams: Pro
       .order("updated_at", { ascending: false })
       .limit(500),
     db.from("supplier_orders")
-      .select("id,status,fulfillment_mode,client_reference,external_order_id,supplier_total_cents,tracking_number,tracking_url,last_error,created_at,supplier_connections(name),orders(order_number)")
+      .select("id,status,fulfillment_mode,client_reference,external_order_id,supplier_total_cents,tracking_number,tracking_url,last_error,logistics_name,created_at,supplier_connections(name),orders(order_number)")
       .order("created_at", { ascending: false })
       .limit(100),
     db.from("products")
