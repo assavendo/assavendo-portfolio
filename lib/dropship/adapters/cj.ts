@@ -632,10 +632,10 @@ async function getShippingOptions(connection: AdapterConnection, context: Adapte
     const r = row as Record<string, unknown>;
     const option = r.option && typeof r.option === "object" ? r.option as Record<string, unknown> : {};
     const channel = r.channel && typeof r.channel === "object" ? r.channel as Record<string, unknown> : {};
-    const logisticsName = String(option.enName ?? channel.enName ?? "").trim();
+    const logisticsName = String(r.logisticsName ?? option.enName ?? channel.enName ?? "").trim();
     if (!logisticsName) continue;
     if (String(r.error ?? "").trim() || String(r.errorEn ?? "").trim()) continue;
-    const arrival = parseArrival(r.arrivalTime ?? option.arrivalTime);
+    const arrival = parseArrival(r.arrivalTime ?? r.logisticAging ?? option.arrivalTime);
     const requirementRows = Array.isArray(r.allRuleTips)
       ? r.allRuleTips
       : (Array.isArray(r.ruleTips) ? r.ruleTips : []);
