@@ -13,12 +13,13 @@ import { isAvailable } from "@/lib/search";
 import Link from "next/link";
 import { currentCustomer } from "@/lib/customer";
 import { toggleFavorite } from "@/app/actions/account";
+import { publicImageUrl } from "@/lib/images";
 
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const slug = (await params).slug;
   const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) return {};
-  return { title: p.title, description: p.summary, alternates: { canonical: `/boutique/${p.slug}` }, openGraph: { images: p.images[0]?.url ? [p.images[0].url] : undefined } };
+  return { title: p.title, description: p.summary, alternates: { canonical: `/boutique/${p.slug}` }, openGraph: { images: p.images[0]?.url ? [publicImageUrl(p.images[0].url, p.seller_type === "supplier")] : undefined } };
 }
 
 export default async function ProductPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
@@ -34,19 +35,19 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const attrDefs = [...(cat?.attributes ?? []), ...(cat?.parent_id ? cats.find((c) => c.id === cat.parent_id)?.attributes ?? [] : [])];
   const attrRows = attrDefs.filter((a) => p.attributes?.[a.key] !== undefined && p.attributes[a.key] !== "").map((a) => ({ label: a.label, value: typeof p.attributes![a.key] === "boolean" ? (p.attributes![a.key] ? "Oui" : "Non") : `${p.attributes![a.key]}${a.unit ? ` ${a.unit}` : ""}` }));
   const old = p.compare_at_cents && p.compare_at_cents > p.price_cents ? p.compare_at_cents : null;
-  const delivery = p.kind === "digital" ? "Téléchargement immédiat après confirmation du paiement" : p.kind === "physical" && p.delivery_min_days != null && p.delivery_max_days != null ? `Livraison en ${p.delivery_min_days === p.delivery_max_days ? p.delivery_min_days : `${p.delivery_min_days} à ${p.delivery_max_days}`} jour${p.delivery_max_days > 1 ? "s" : ""}${p.shipping_cents ? ` · ${eur(p.shipping_cents)}` : " · livraison offerte"}` : null;
+  const delivery = p.kind === "digital" ? "Téléchargement immédiat après confirmation du paiement" : p.kind === "physical" && p.seller_type === "supplier" ? "Livraison calculée selon la destination, le poids du panier et la méthode choisie" : p.kind === "physical" && p.delivery_min_days != null && p.delivery_max_days != null ? `Livraison en ${p.delivery_min_days === p.delivery_max_days ? p.delivery_min_days : `${p.delivery_min_days} à ${p.delivery_max_days}`} jour${p.delivery_max_days > 1 ? "s" : ""}${p.shipping_cents ? ` · ${eur(p.shipping_cents)}` : " · livraison offerte"}` : null;
   const vid = await visitorId(false);
   let liked = false;
   if (vid && process.env.SUPABASE_SECRET_KEY) { const { data } = await supabaseAdmin().from("product_likes").select("product_id").eq("product_id", p.id).eq("visitor_id", vid).maybeSingle(); liked = !!data; }
-  const ld = { "@context": "https://schema.org", "@type": "Product", name: p.title, ...(brand ? { brand: { "@type": "Brand", name: brand.name } } : {}), ...(p.sku ? { sku: p.sku } : {}), ...(p.gtin ? { gtin: p.gtin } : {}), description: p.summary, image: p.images.map((i) => i.url), offers: { "@type": "Offer", priceCurrency: "EUR", price: (p.price_cents / 100).toFixed(2), availability: available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock", url: `${siteUrl}/boutique/${p.slug}` }, /* Pas d'aggregateRating : les avis ne sont pas des achats vérifiés de façon exploitable par les moteurs de recherche. */ };
+  const ld = { "@context": "https://schema.org", "@type": "Product", name: p.title, ...(brand ? { brand: { "@type": "Brand", name: brand.name } } : {}), ...(p.sku ? { sku: p.sku } : {}), ...(p.gtin ? { gtin: p.gtin } : {}), description: p.summary, image: p.images.map((i) => publicImageUrl(i.url, p.seller_type === "supplier")), offers: { "@type": "Offer", priceCurrency: "EUR", price: (p.price_cents / 100).toFixed(2), availability: available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock", url: `${siteUrl}/boutique/${p.slug}` }, /* Pas d'aggregateRating : les avis ne sont pas des achats vérifiés de façon exploitable par les moteurs de recherche. */ };
   return (
     <div className="section"><div className="wrap">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <nav className="crumbs" aria-label="Fil d'Ariane"><ol><li><Link href="/">Accueil</Link></li><li><Link href="/boutique">Boutique</Link></li>{crumbs.map((c) => <li key={c.id}><Link href={`/categorie/${c.slug}`}>{c.name}</Link></li>)}<li><span aria-current="page">{p.title}</span></li></ol></nav>
       <div className="p-hero" style={{ alignItems: "start" }}>
         <div className="gallery">
-          <div className="main">{p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt || p.title} fill sizes="(max-width: 900px) 100vw, 560px" priority unoptimized style={{ objectFit: "contain", objectPosition: "center" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>
-          {p.images.length > 1 ? <div className="thumbs">{p.images.slice(1, 6).map((i) => <Image key={i.url} src={i.url} alt={i.alt || p.title} width={76} height={43} unoptimized style={{ objectFit: "contain" }} />)}</div> : null}
+          <div className="main">{p.images[0] ? <Image src={publicImageUrl(p.images[0].url, p.seller_type === "supplier")} alt={p.images[0].alt || p.title} fill sizes="(max-width: 900px) 100vw, 560px" priority unoptimized style={{ objectFit: "contain", objectPosition: "center" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>
+          {p.images.length > 1 ? <div className="thumbs">{p.images.slice(1, 6).map((i) => <Image key={i.url} src={publicImageUrl(i.url, p.seller_type === "supplier")} alt={i.alt || p.title} width={76} height={43} unoptimized style={{ objectFit: "contain" }} />)}</div> : null}
         </div>
         <div>
           <h1 style={{ fontSize: "clamp(1.9rem,3.6vw,2.8rem)" }}>{p.title}</h1>
