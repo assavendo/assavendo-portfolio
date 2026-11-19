@@ -22,7 +22,8 @@ export type AdapterInventoryRecord = {
   external_variant_id?: string | null;
   supplier_qty: number | null;
   supplier_price_cents: number | null;
-  supplier_currency: string | null;
+supplier_currency: string | null;
+  supplier_weight_g?: number | null;
   available: boolean | null;
   raw: unknown;
 };
