@@ -394,7 +394,7 @@ export async function recordManualSupplierOrder(form: FormData) {
   }).eq("id", id);
   if (error) throw new Error("Traitement manuel non enregistré : " + error.message);
 
-  const itemStatus = supplierStatus === "canceled" ? "canceled" : supplierStatus === "needs_review" ? "failed" : "submitted";
+  const itemStatus = supplierStatus === "manual_pending" ? "queued" : supplierStatus === "canceled" ? "canceled" : supplierStatus === "needs_review" ? "failed" : "submitted";
   const { error: itemError } = await db.from("supplier_order_items").update({ status: itemStatus }).eq("supplier_order_id", id);
   if (itemError) throw new Error("La commande fournisseur est enregistrée mais le statut de ses lignes n'a pas pu être synchronisé.");
 
