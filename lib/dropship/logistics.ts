@@ -181,12 +181,14 @@ export async function quoteCartShippingOptions(
   if (!adapter.includes("cj") && provider !== "cj_dropshipping") {
     throw new Error("Le calcul logistique dynamique n’est pas disponible pour le fournisseur de ce panier.");
   }
+  const fx = await getRatesToEur(["USD"]);
   const rows = await quoteSupplierShipping(base.connection.id, {
     destinationCountry: country,
     sourceCountry: String(base.connection.config?.cj_from_country_code ?? "CN").toUpperCase(),
     weightG: base.weightG,
     wrapWeightG: base.wrapWeightG,
     totalGoodsAmountEur: base.totalGoodsAmountEur,
+    totalGoodsAmountUsd: base.totalGoodsAmountEur * fx.USD.rate,
     volumeCm3: base.volumeCm3,
     skuLines: base.skuLines,
     productProperties: base.productProperties,
