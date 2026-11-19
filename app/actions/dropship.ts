@@ -17,6 +17,7 @@ const schema = z.object({
   supplier_url: z.string().trim().min(12).max(2000),
   product_query: z.string().trim().min(2, "Indiquez le nom du produit.").max(200),
   operator_prompt: z.string().trim().max(4000).optional().default(""),
+  supplier_connection_id: z.string().uuid().optional().or(z.literal("")),
   rights_confirmed: z.literal("on", { error: "Confirmez que vous êtes autorisé à utiliser cette source et ses images." }),
 });
 
@@ -61,12 +62,17 @@ export async function importSupplierProduct(form: FormData) {
   }
 
   const db = supabaseAdmin();
+  const supplierConnectionId = parsed.data.supplier_connection_id || null;
+  if (supplierConnectionId) {
+    const { data: connection, error: connectionError } = await db.from("supplier_connections").select("id,name").eq("id", supplierConnectionId).maybeSingle();
+    if (connectionError || !connection) return back("Le fournisseur sélectionné n'existe plus. Actualisez le Centre fournisseurs.", "erreur");
+  }
   const { data: duplicate } = await db.from("dropship_imports").select("id,status").eq("supplier_url", target.toString()).is("archived_at", null).in("status", ["queued", "running", "needs_review", "approved"]).limit(1).maybeSingle();
   if (duplicate) return back(`Cette page est déjà importée (référence ${duplicate.id}, statut ${duplicate.status}).`, "erreur");
 
   const { data: row, error: insertError } = await db.from("dropship_imports").insert({
     supplier_url: target.toString(), product_query: parsed.data.product_query, operator_prompt: parsed.data.operator_prompt ?? "", status: "queued", rights_confirmed: true,
-    extracted: { version: 1, requested_at: new Date().toISOString() }, images: [],
+    extracted: { version: 1, requested_at: new Date().toISOString(), supplier_connection_id: supplierConnectionId }, images: [],
   }).select("id").single();
   if (insertError || !row) return back("L'import n'a pas pu être enregistré dans Supabase.", "erreur");
 
@@ -98,13 +104,14 @@ export async function importSupplierProduct(form: FormData) {
       requested_name: parsed.data.product_query,
       extracted_at: new Date().toISOString(),
       source_content_truncated: response.truncated,
+      supplier_connection_id: supplierConnectionId,
       price_note: "Prix affiché par le fournisseur : référence non vérifiée, ne pas utiliser comme prix de vente.",
     };
     const { error: updateError } = await db.from("dropship_imports").update({ status: "running", extracted: values, images: imageRecords, updated_at: new Date().toISOString() }).eq("id", row.id);
     if (updateError) return await fail("La fiche extraite n'a pas pu être conservée dans Supabase.");
 
     const modelSourceUrl = new URL(response.url); modelSourceUrl.search = ""; modelSourceUrl.hash = "";
-    const proposal = await proposeSupplierProduct({ importId: row.id, supplierUrl: modelSourceUrl.toString(), productQuery: parsed.data.product_query, operatorPrompt: parsed.data.operator_prompt ?? "", extracted });
+    const proposal = await proposeSupplierProduct({ importId: row.id, supplierUrl: modelSourceUrl.toString(), productQuery: parsed.data.product_query, operatorPrompt: parsed.data.operator_prompt ?? "", extracted, supplierConnectionId });
     if (!proposal.ok) return await fail(`Extraction terminée, mais la proposition IA a échoué : ${proposal.note}`);
     const { error: doneError } = await db.from("dropship_imports").update({ status: "needs_review", error: null, updated_at: new Date().toISOString() }).eq("id", row.id);
     if (doneError) return await fail("Proposition créée, mais le statut d'import n'a pas pu être mis à jour. Vérifiez le Centre IA avant de relancer.");

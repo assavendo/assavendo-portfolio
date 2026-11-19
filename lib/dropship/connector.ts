@@ -12,6 +12,7 @@ type Connection = {
   base_url: string | null;
   enabled: boolean;
   auto_order_enabled: boolean;
+  fulfillment_mode: "manual" | "auto";
   webhook_enabled: boolean;
   sync_interval_seconds: number;
   inventory_method: "GET" | "POST";
@@ -51,11 +52,13 @@ export type SupplierInventoryRecord = {
   supplier_qty: number | null;
   supplier_price_cents: number | null;
   supplier_currency: string | null;
+  supplier_weight_g?: number | null;
+  supplier_volume_cm3?: number | null;
   available: boolean | null;
   raw: unknown;
 };
 
-const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,webhook_enabled,sync_interval_seconds,provider_key,integration_mode,adapter,credentials_ciphertext,sandbox_enabled,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
+const CONNECTION_SELECT = "id,name,base_url,enabled,auto_order_enabled,fulfillment_mode,webhook_enabled,sync_interval_seconds,provider_key,integration_mode,adapter,credentials_ciphertext,sandbox_enabled,inventory_method,inventory_path,inventory_response_path,inventory_sku_path,inventory_qty_path,inventory_price_path,inventory_currency_path,inventory_available_path,order_method,order_path,order_response_id_path,order_status_path,order_tracking_number_path,order_tracking_url_path,order_payload_template,auth_header,auth_prefix,secret_ciphertext,webhook_secret_ciphertext,config,status,last_sync_at,last_success_at";
 
 
 function stringValue(value: unknown, max = 500): string | null {
@@ -184,6 +187,21 @@ export async function fetchInventory(connectionId: string, context: Record<strin
   return { connection, records };
 }
 
+export async function getSupplierBalanceUsd(connectionId: string): Promise<number | null> {
+  const connection = await getConnection(connectionId);
+  const adapter = getSupplierAdapter(connection.adapter);
+  if (!adapter?.getBalanceUsd) return null;
+  return adapter.getBalanceUsd(connection as AdapterConnection);
+}
+
+export async function quoteSupplierShipping(connectionId: string, context: import("./adapters/types").AdapterShippingContext): Promise<import("./adapters/types").AdapterShippingOption[]> {
+  const connection = await getConnection(connectionId);
+  if (!connection.enabled) throw new Error("Supplier connection is disabled.");
+  const adapter = getSupplierAdapter(connection.adapter);
+  if (!adapter?.getShippingOptions) throw new Error("Ce fournisseur ne fournit pas de calcul logistique dynamique.");
+  return adapter.getShippingOptions(connection as AdapterConnection, context);
+}
+
 export async function callSupplierOrder(connectionId: string, orderContext: Record<string, unknown>, idempotencyKey: string): Promise<{
   external_order_id: string | null;
   external_status: string | null;
@@ -192,7 +210,7 @@ export async function callSupplierOrder(connectionId: string, orderContext: Reco
   raw: unknown;
 }> {
   const connection = await getConnection(connectionId);
-  if (!connection.enabled || !connection.auto_order_enabled) throw new Error("Supplier auto-order is disabled.");
+  if (!connection.enabled || connection.fulfillment_mode !== "auto" || !connection.auto_order_enabled) throw new Error("Supplier auto-order is disabled or this connection is in manual mode.");
   const adapter = getSupplierAdapter(connection.adapter);
   if (adapter) return adapter.submitOrder(connection as AdapterConnection, orderContext, idempotencyKey);
   if (connection.integration_mode && connection.integration_mode !== "generic_rest") {

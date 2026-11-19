@@ -26,11 +26,11 @@ export async function writeCart(lines: CartLine[]): Promise<void> {
 export type CartItem = {
   line: CartLine; product: Product; variant: Variant | null; unit: number; total: number; maxQty: number; issue: string | null;
 };
-export type CartDetail = { items: CartItem[]; subtotal: number; shipping: number; total: number; hasPhysical: boolean; hasPaidDigital: boolean; blocked: boolean };
+export type CartDetail = { items: CartItem[]; subtotal: number; shipping: number; shippingDynamic: boolean; total: number; hasPhysical: boolean; hasPaidDigital: boolean; blocked: boolean };
 
 /** Affichage du panier (le même calcul est refait par la base à la commande). */
 export async function loadCart(lines: CartLine[]): Promise<CartDetail> {
-  const empty: CartDetail = { items: [], subtotal: 0, shipping: 0, total: 0, hasPhysical: false, hasPaidDigital: false, blocked: false };
+  const empty: CartDetail = { items: [], subtotal: 0, shipping: 0, shippingDynamic: false, total: 0, hasPhysical: false, hasPaidDigital: false, blocked: false };
   if (!lines.length) return empty;
   const db = supabasePublic();
   const [{ data: prods }, { data: vars }, { data: cats }] = await Promise.all([
@@ -42,7 +42,7 @@ export async function loadCart(lines: CartLine[]): Promise<CartDetail> {
   const V = (vars ?? []) as Variant[];
   const nonSellable = new Set((cats ?? []).filter((c) => !c.sellable).map((c) => c.id));
   const items: CartItem[] = []; const shipped = new Set<string>();
-  let subtotal = 0, shipping = 0, hasPhysical = false, hasPaidDigital = false, blocked = false;
+  let subtotal = 0, shipping = 0, hasPhysical = false, shippingDynamic = false, hasPaidDigital = false, blocked = false;
   for (const line of lines) {
     const product = P.get(line.p); if (!product) { blocked = true; continue; }
     const variants = V.filter((x) => x.product_id === product.id);
@@ -57,11 +57,11 @@ export async function loadCart(lines: CartLine[]): Promise<CartDetail> {
     if (issue) blocked = true;
     items.push({ line, product, variant, unit, total: unit * line.q, maxQty: product.kind === "physical" ? Math.min(MAX_QTY, Number.isFinite(stock) ? Math.max(stock, 1) : MAX_QTY) : 1, issue });
     subtotal += unit * line.q;
-    if (product.kind === "physical") { hasPhysical = true; if (!shipped.has(product.id)) { shipped.add(product.id); shipping += product.shipping_cents ?? 0; } }
+    if (product.kind === "physical") { hasPhysical = true; if (product.seller_type === "supplier") shippingDynamic = true; else if (!shipped.has(product.id)) { shipped.add(product.id); shipping += product.shipping_cents ?? 0; } }
     else if (product.kind === "digital" && unit > 0) hasPaidDigital = true;
   }
   if (items.length !== lines.length) blocked = true;
   const total = subtotal + shipping;
   if (total > 0 && total < 50) blocked = true;
-  return { items, subtotal, shipping, total, hasPhysical, hasPaidDigital, blocked };
+  return { items, subtotal, shipping, shippingDynamic, total, hasPhysical, hasPaidDigital, blocked };
 }

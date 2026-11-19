@@ -6,6 +6,7 @@ export type AdapterConnection = {
   base_url: string | null;
   enabled: boolean;
   auto_order_enabled: boolean;
+  fulfillment_mode: "manual" | "auto";
   webhook_enabled: boolean;
   sync_interval_seconds: number;
   credentials_ciphertext: string | null;
@@ -21,9 +22,47 @@ export type AdapterInventoryRecord = {
   external_variant_id?: string | null;
   supplier_qty: number | null;
   supplier_price_cents: number | null;
-  supplier_currency: string | null;
+supplier_currency: string | null;
+  supplier_weight_g?: number | null;
+  supplier_volume_cm3?: number | null;
   available: boolean | null;
   raw: unknown;
+};
+
+export type ShippingRuleRequirement = {
+  type: string;
+  message: string | null;
+  expression: string | null;
+  interceptType: string | null;
+};
+
+export type AdapterShippingOption = {
+  code: string;
+  logisticsName: string;
+  label: string;
+  channelId: string | null;
+  optionId: string | null;
+  priceUsd: number;
+  taxesUsd: number;
+  clearanceUsd: number;
+  tariffUsd: number;
+  totalUsd: number;
+  minDays: number | null;
+  maxDays: number | null;
+  requirements: ShippingRuleRequirement[];
+  raw: unknown;
+};
+
+export type AdapterShippingContext = {
+  destinationCountry: string;
+  sourceCountry: string;
+  weightG: number;
+  wrapWeightG: number;
+  totalGoodsAmountEur: number;
+  skuLines: Array<{ sku: string; variantId?: string | null; quantity: number; weightG?: number | null; volumeCm3?: number | null }>;
+  volumeCm3: number;
+  productProperties: string[];
+  shipping?: Record<string, unknown>;
 };
 
 export type AdapterOrderResult = {
@@ -40,4 +79,6 @@ export type SupplierAdapter = {
   fetchInventory: (connection: AdapterConnection, externalSkus: string[]) => Promise<AdapterInventoryRecord[]>;
   submitOrder: (connection: AdapterConnection, orderContext: Record<string, unknown>, idempotencyKey: string) => Promise<AdapterOrderResult>;
   getOrderStatus: (connection: AdapterConnection, externalOrderId: string, context: Record<string, unknown>) => Promise<AdapterOrderResult>;
+  getShippingOptions?: (connection: AdapterConnection, context: AdapterShippingContext) => Promise<AdapterShippingOption[]>;
+  getBalanceUsd?: (connection: AdapterConnection) => Promise<number>;
 };

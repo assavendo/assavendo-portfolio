@@ -48,12 +48,12 @@ export default async function Panier({ searchParams }: { searchParams: Promise<{
             <h2 id="sum-t" style={{ fontSize: "1.2rem" }}>Récapitulatif</h2>
             <dl>
               <div><dt>Sous-total</dt><dd>{eur(cart.subtotal)}</dd></div>
-              {cart.hasPhysical ? <div><dt>Livraison</dt><dd>{cart.shipping ? eur(cart.shipping) : "Offerte"}</dd></div> : null}
+              {cart.hasPhysical ? <div><dt>Livraison</dt><dd>{cart.shippingDynamic ? "Calculée à l’étape livraison" : (cart.shipping ? eur(cart.shipping) : "Offerte")}</dd></div> : null}
               <div className="grand"><dt>Total TTC</dt><dd>{eur(cart.total)}</dd></div>
             </dl>
             {cart.total > 0 && cart.total < 50 ? <p className="alert alert-err" role="alert">Le montant minimum de paiement est de 0,50 €.</p> : null}
             {cart.blocked ? <p className="muted small">Résolvez les points signalés pour passer commande.</p> : <Link className="btn btn-primary btn-lg" href="/commande">Passer la commande</Link>}
-            <p className="muted small">Prix toutes taxes comprises. Le stock est réservé au moment du paiement. Paiement sécurisé par Stripe.</p>
+            <p className="muted small">Prix TTC. Pour les produits fournisseur, les méthodes de livraison disponibles et leur prix exact sont recalculés au paiement selon la destination et le panier. Le paiement est sécurisé par Stripe.</p>
             <p><Link href="/boutique">← Continuer mes achats</Link></p>
           </aside>
         </div>

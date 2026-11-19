@@ -5,6 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { archiveSupplierImport, importSupplierProduct, restoreSupplierImport } from "@/app/actions/dropship";
 
+type SupplierConnection = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  status: string;
+};
+
 type SupplierImport = {
   id: string;
   supplier_url: string;
@@ -106,7 +113,7 @@ function ImportCard({ item }: { item: SupplierImport }) {
   </article>;
 }
 
-export function SupplierImportForm({ imports = [] }: { imports?: SupplierImport[] }) {
+export function SupplierImportForm({ imports = [], connections = [] }: { imports?: SupplierImport[]; connections?: SupplierConnection[] }) {
   const [prompt, setPrompt] = useState("");
   const [productQuery, setProductQuery] = useState("");
   const [historySearch, setHistorySearch] = useState("");
@@ -135,8 +142,9 @@ export function SupplierImportForm({ imports = [] }: { imports?: SupplierImport[
           <div className="siw-field"><div className="siw-label">Page produit publique <span>HTTPS uniquement</span></div><input className="siw-input" name="supplier_url" type="url" inputMode="url" placeholder="https://fournisseur.example/produit" required maxLength={2000}/></div>
           <div className="siw-row">
             <div className="siw-field"><div className="siw-label">Produit ciblé <span>2–200 caractères</span></div><input className="siw-input" name="product_query" value={productQuery} onChange={(e) => setProductQuery(e.target.value)} placeholder="Ex. lampe de bureau rechargeable" required minLength={2} maxLength={200}/></div>
-            <div className="siw-note"><b>Garde le contrôle</b><br/>Prix de vente, stock, livraison, droits, conformité et publication restent des décisions administratives.</div>
+            <div className="siw-field"><div className="siw-label">Fournisseur connecté <span>mapping automatique</span></div><select className="siw-input" name="supplier_connection_id" defaultValue={connections.find((c) => c.enabled)?.id ?? ""}><option value="">Créer le brouillon sans mapping automatique</option>{connections.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.status}</option>)}</select></div>
           </div>
+          <div className="siw-note" style={{marginBottom:16}}><b>Garde le contrôle</b><br/>Le prix fournisseur et la marge restent internes. Le produit client recevra par défaut une marge de 30 % et les variantes utiliseront des références Assavendo internes.</div>
           <div className="siw-field"><div className="siw-label">Prompt de préparation IA <span>{prompt.length}/4000</span></div><textarea className="siw-textarea" name="operator_prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={4000} placeholder="Ex. Prépare une fiche premium, concise et factuelle. Mets en avant les caractéristiques vérifiables et structure le texte pour la boutique."></textarea></div>
           <div className="siw-presets">{PRESETS.map((preset) => <button key={preset} className="siw-chip" type="button" onClick={() => applyPreset(preset)}>+ {clip(preset, 82)}</button>)}</div>
           <div className="siw-safety"><div className="siw-safe"><strong>🛡️ Source sécurisée</strong>SSRF, HTTPS, redirections et robots.txt contrôlés.</div><div className="siw-safe"><strong>✦ IA cloisonnée</strong>La donnée fournisseur n’est jamais traitée comme une instruction.</div></div>
