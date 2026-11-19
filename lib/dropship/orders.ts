@@ -118,6 +118,25 @@ export async function queueSupplierOrders(orderId: string) {
     });
   }
 
+  if (needsReview) {
+    await markOrderNeedsReview(orderId, "La commande physique est bloquée : au moins une ligne fournisseur n'est pas entièrement routable, disponible et fraîche. Aucun fournisseur ne sera sollicité partiellement.");
+    return { queued: 0, manual: 0, needsReview: true };
+  }
+
+  for (const [, group] of selected) {
+    const connection = connections.get(group.connectionId);
+    if (!connection) {
+      await markOrderNeedsReview(orderId, "Connexion fournisseur introuvable avant création de la commande fournisseur.");
+      return { queued: 0, manual: 0, needsReview: true };
+    }
+    const subtotalSupplierCost = group.items.reduce((sum, item) => sum + Number(group.mapping.supplier_cost_cents ?? 0) * item.qty, 0);
+    const maxOrder = Number(connection.config?.max_supplier_order_cents ?? 100000);
+    if (subtotalSupplierCost > maxOrder) {
+      await markOrderNeedsReview(orderId, "Le plafond de commande fournisseur est dépassé; aucune commande fournisseur partielle ne sera créée.");
+      return { queued: 0, manual: 0, needsReview: true };
+    }
+  }
+
   let queued = 0;
   let manual = 0;
   for (const [, group] of selected) {
