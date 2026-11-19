@@ -1,4 +1,4 @@
-const DEFAULT_ALLOWED_IMAGE_HOSTS = ["cf.cjdropshipping.com", "images.unsplash.com", "supabase.co"];
+const DEFAULT_ALLOWED_IMAGE_HOSTS = ["cf.cjdropshipping.com", "oss-cf.cjdropshipping.com", "images.unsplash.com", "supabase.co"];
 
 export function allowedImageHosts(): string[] {
   const configured = String(process.env.ASSAVENDO_ALLOWED_IMAGE_HOSTS ?? "")
