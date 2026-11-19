@@ -632,6 +632,7 @@ async function getShippingOptions(connection: AdapterConnection, context: Adapte
     const channel = r.channel && typeof r.channel === "object" ? r.channel as Record<string, unknown> : {};
     const logisticsName = String(option.enName ?? channel.enName ?? "").trim();
     if (!logisticsName) continue;
+    if (String(r.error ?? "").trim() || String(r.errorEn ?? "").trim()) continue;
     const arrival = parseArrival(r.arrivalTime ?? option.arrivalTime);
     const requirementRows = Array.isArray(r.allRuleTips)
       ? r.allRuleTips
@@ -645,6 +646,10 @@ async function getShippingOptions(connection: AdapterConnection, context: Adapte
         interceptType: typeof x.interceptType === "string" ? x.interceptType : null,
       }))
       .filter((x) => x.type);
+
+    const hasIossRequirement = requirements.some((x) => x.type === "iossNumber");
+    if (context.totalGoodsAmountEur > 150 && hasIossRequirement) continue;
+    if (context.totalGoodsAmountEur <= 150 && hasIossRequirement && !configString(connection, "cj_ioss_number", "CJ-IOSS")) continue;
 
     const postage = Number(r.postage);
     const taxes = Number(r.taxesFee);
