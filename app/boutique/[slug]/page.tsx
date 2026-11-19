@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getProductStats, getPublishedProducts } from "@/lib/data";
 import { visitorId } from "@/lib/visitor";
 import { supabaseAdmin } from "@/lib/supabase/server";
@@ -27,9 +27,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function ProductPage({
-  const legacyTarget = LEGACY_SLUG_REDIRECTS[slug];
-  if (legacyTarget) redirect(`/boutique/${legacyTarget}`); params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
+  params,
+  searchParams,
+}: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
+  const legacyTarget = LEGACY_SLUG_REDIRECTS[slug];
+  if (legacyTarget) redirect(`/boutique/${legacyTarget}`);
   const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) notFound();
   const stats = await getProductStats(p.id);
   const [allVariants, cats, brands] = await Promise.all([getVariants(), getCategories(), getBrands()]);
