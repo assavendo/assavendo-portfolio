@@ -78,6 +78,8 @@ create index if not exists orders_shipping_method_idx
 create index if not exists supplier_orders_manual_pending_idx
   on public.supplier_orders(status, fulfillment_mode, created_at);
 
+drop function if exists public.create_cart_order(jsonb, text, text, text, boolean, text, integer);
+
 create or replace function public.create_cart_order(
   p_lines jsonb,
   p_email text,
