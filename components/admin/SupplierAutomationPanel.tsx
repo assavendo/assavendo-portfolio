@@ -79,6 +79,7 @@ type SupplierOrder = {
   tracking_number: string | null;
   tracking_url: string | null;
   last_error: string | null;
+  logistics_name: string | null;
   created_at: string;
   supplier_connections: { name: string } | null;
   orders: { order_number: string | null } | null;
@@ -161,10 +162,6 @@ function ConnectionForm({ c }: { c?: Connection }) {
         <label><div className="saw-label">Base API HTTPS</div><input className="saw-input" name="base_url" defaultValue={c?.base_url ?? ""} placeholder="https://api.fournisseur.com" required={requiresRestMapping}/></label>
       ) : <div className="saw-help">Ce profil ne nécessite pas d’URL REST générique. La connexion dépend du protocole officiel du fournisseur.</div>}
       <label><div className="saw-label">Intervalle de sync (s)</div><input className="saw-input" type="number" name="sync_interval_seconds" defaultValue={c?.sync_interval_seconds ?? 900} min={60} max={86400}/></label>
-      <label className="saw-check" style={{paddingTop:20}}>
-        <input type="checkbox" name="webhook_enabled" defaultChecked={Boolean(c?.webhook_enabled)}/>
-        <span>Activer les webhooks signés du fournisseur</span>
-      </label>
     </div>
 
     {provider.key === "cj_dropshipping" ? (
@@ -329,7 +326,7 @@ export function SupplierAutomationPanel({ connections, mappings, orders, product
     <div className="saw-three">
       <label><div className="saw-label">Statut</div><select className="saw-select" name="status" defaultValue={o.status}><option value="manual_pending">À traiter</option><option value="submitted">Créée fournisseur</option><option value="confirmed">Confirmée</option><option value="processing">En préparation</option><option value="shipped">Expédiée</option><option value="delivered">Livrée</option><option value="needs_review">À vérifier</option><option value="canceled">Annulée</option></select></label>
       <label><div className="saw-label">Référence fournisseur</div><input className="saw-input" name="external_order_id" defaultValue={o.external_order_id ?? ""}/></label>
-      <label><div className="saw-label">Transport/logistique</div><input className="saw-input" name="logistics_name" defaultValue="" /></label>
+      <label><div className="saw-label">Transport/logistique</div><input className="saw-input" name="logistics_name" defaultValue={o.logistics_name ?? ""} /></label>
     </div>
     <div className="saw-two"><label><div className="saw-label">Numéro de suivi</div><input className="saw-input" name="tracking_number" defaultValue={o.tracking_number ?? ""}/></label><label><div className="saw-label">URL de suivi</div><input className="saw-input" name="tracking_url" defaultValue={o.tracking_url ?? ""}/></label></div>
     <input className="saw-input" name="manual_note" placeholder="Note interne (facultatif)"/>
