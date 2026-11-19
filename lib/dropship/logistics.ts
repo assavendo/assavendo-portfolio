@@ -41,6 +41,47 @@ function optionKey(connectionId: string, option: AdapterShippingOption): string 
   return connectionId + ":" + option.code;
 }
 
+function valueForRequirement(type: string, shipping: ShippingAddress): string {
+  const values: Record<string, unknown> = {
+    phone: shipping.phone,
+    zip: shipping.postal_code,
+    postalCode: shipping.postal_code,
+    city: shipping.city,
+    town: shipping.city,
+    province: shipping.state,
+    state: shipping.state,
+    recipientName: shipping.name,
+    recipientAddress: [shipping.line1, shipping.line2].filter(Boolean).join(" "),
+    houseNumber: shipping.house_number,
+    email: shipping.email,
+    dutyNo: shipping.duty_no,
+    recipientId: shipping.recipient_id,
+  };
+  return String(values[type] ?? "").trim();
+}
+
+function validateShippingRules(option: CheckoutShippingOption, shipping: ShippingAddress): string | null {
+  for (const rule of option.snapshot.providerOption.requirements) {
+    if (rule.type === "iossNumber") continue;
+    let value = valueForRequirement(rule.type, shipping);
+    if (rule.type === "houseNumber" && !value) {
+      const inferred = String(shipping.line1 ?? "").match(/\b\d+[A-Za-z]?\b/);
+      if (inferred) value = inferred[0];
+    }
+    if (!value) return "Cette méthode exige votre " + requirementLabel(rule.type) + ".";
+    if (rule.expression) {
+      try {
+        if (!new RegExp(rule.expression).test(value)) {
+          return "Le " + requirementLabel(rule.type) + " ne respecte pas le format requis par cette méthode de livraison.";
+        }
+      } catch {
+        return "Les exigences de cette méthode de livraison ne peuvent pas être vérifiées.";
+      }
+    }
+  }
+  return null;
+}
+
 async function resolveShippingContext(lines: CartLine[], destinationCountry: string, shipping?: ShippingAddress) {
   const cart = await loadCart(lines);
   if (cart.blocked) throw new Error("Le panier doit être valide avant de calculer la livraison.");
@@ -146,6 +187,7 @@ export async function quoteCartShippingOptions(
     weightG: base.weightG,
     wrapWeightG: base.wrapWeightG,
     totalGoodsAmountEur: base.totalGoodsAmountEur,
+    volumeCm3: base.volumeCm3,
     skuLines: base.skuLines,
     productProperties: base.productProperties,
     shipping: base.shipping,
