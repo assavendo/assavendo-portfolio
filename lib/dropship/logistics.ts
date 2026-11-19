@@ -158,5 +158,7 @@ export async function revalidateCartShippingSelection(
   const options = await quoteCartShippingOptions(lines, destinationCountry, shipping);
   const selected = options.find((x) => x.code === selectedCode);
   if (!selected) throw new Error("La méthode de livraison choisie n’est plus disponible. Rechargez la page et choisissez une option proposée.");
+  const ruleError = validateShippingRules(selected, shipping);
+  if (ruleError) throw new Error(ruleError);
   return selected;
 }
