@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { decryptSupplierSecret, encryptSupplierSecret } from "../crypto.ts";
-import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, SupplierAdapter } from "./types";
+import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, AdapterShippingContext, AdapterShippingOption, ShippingRuleRequirement, SupplierAdapter } from "./types";
 
 type CjCredentials = {
   apiKey?: string;
@@ -549,6 +549,120 @@ function toAdapterOrderResult(order: CjOrderSummary, fallbackId?: string): Adapt
   };
 }
 
+
+function parseArrival(value: unknown): { min: number | null; max: number | null } {
+  const raw = String(value ?? "").trim();
+  const m = raw.match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (m) return { min: Number(m[1]), max: Number(m[2]) };
+  const one = raw.match(/\d+/);
+  return one ? { min: Number(one[0]), max: Number(one[0]) } : { min: null, max: null };
+}
+
+function neutralShippingLabel(logisticsName: string, minDays: number | null, maxDays: number | null): string {
+  const n = logisticsName.toLowerCase();
+  const tier = /express|fast|speed/i.test(n) ? "Express" : /postal|ordinary|economic|economy|packet/i.test(n) ? "Économique" : "Standard";
+  const eta = minDays !== null && maxDays !== null ? ` · ${minDays}–${maxDays} jours` : "";
+  return tier + eta;
+}
+
+async function getShippingOptions(connection: AdapterConnection, context: AdapterShippingContext): Promise<AdapterShippingOption[]> {
+  const { token } = await ensureAccessToken(connection);
+  if (!context.destinationCountry || !context.sourceCountry) throw new Error("Pays d'origine et de destination requis pour le calcul logistique.");
+  if (!Number.isFinite(context.weightG) || context.weightG <= 0) throw new Error("Poids produit invalide pour le calcul logistique.");
+  if (!context.skuLines.length || context.skuLines.some((line) => !line.sku || line.quantity < 1)) throw new Error("Références fournisseur invalides pour le calcul logistique.");
+
+  const shipping = context.shipping ?? {};
+  const request = {
+    reqDTOS: [{
+      srcAreaCode: context.sourceCountry.toUpperCase(),
+      destAreaCode: context.destinationCountry.toUpperCase(),
+      weight: Math.max(1, Math.round(context.weightG)),
+      wrapWeight: Math.max(0, Math.round(context.wrapWeightG)),
+      totalGoodsAmount: Math.max(0.01, Number(context.totalGoodsAmountEur)),
+      productProp: context.productProperties.length ? context.productProperties : ["COMMON"],
+      skuList: context.skuLines.map((line) => line.sku),
+      freightTrialSkuList: context.skuLines.map((line) => ({
+        skuQuantity: Math.max(1, Math.trunc(line.quantity)),
+        sku: line.sku,
+        ...(line.variantId ? { vid: line.variantId } : {}),
+        ...(line.weightG ? { skuWeight: Math.max(1, Math.round(line.weightG)) } : {}),
+      })),
+      shippingMode: Number(connection.config?.cj_shop_logistics_type ?? 2),
+      ...(typeof shipping.postal_code === "string" && shipping.postal_code ? { zip: shipping.postal_code } : {}),
+      ...(typeof shipping.phone === "string" && shipping.phone ? { phone: shipping.phone } : {}),
+      ...(typeof shipping.line1 === "string" && shipping.line1 ? { recipientAddress: shipping.line1 } : {}),
+      ...(typeof shipping.city === "string" && shipping.city ? { city: shipping.city } : {}),
+      ...(typeof shipping.name === "string" && shipping.name ? { recipientName: shipping.name } : {}),
+      ...(typeof shipping.state === "string" && shipping.state ? { province: shipping.state } : {}),
+      ...(typeof shipping.email === "string" && shipping.email ? { email: shipping.email } : {}),
+      ...(
+        context.totalGoodsAmountEur <= 150 &&
+        configString(connection, "cj_ioss_number", "CJ-IOSS")
+          ? { iossNumber: configString(connection, "cj_ioss_number", "CJ-IOSS") }
+          : {}
+      ),
+    }],
+  };
+
+  const data = await cjFetch<unknown>(connection, "/logistic/freightCalculateTip", "POST", request, undefined, token);
+  const rows = Array.isArray(data) ? data : [];
+  const options: AdapterShippingOption[] = [];
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const option = r.option && typeof r.option === "object" ? r.option as Record<string, unknown> : {};
+    const channel = r.channel && typeof r.channel === "object" ? r.channel as Record<string, unknown> : {};
+    const logisticsName = String(option.enName ?? channel.enName ?? "").trim();
+    if (!logisticsName) continue;
+    const arrival = parseArrival(r.arrivalTime ?? option.arrivalTime);
+    const requirementRows = Array.isArray(r.allRuleTips)
+      ? r.allRuleTips
+      : (Array.isArray(r.ruleTips) ? r.ruleTips : []);
+    const requirements: ShippingRuleRequirement[] = requirementRows
+      .filter((x): x is Record<string, unknown> => Boolean(x && typeof x === "object"))
+      .map((x) => ({
+        type: String(x.type ?? "").trim(),
+        message: typeof x.msgEn === "string" ? x.msgEn : (typeof x.msg === "string" ? x.msg : null),
+        expression: typeof x.expression === "string" ? x.expression : null,
+        interceptType: typeof x.interceptType === "string" ? x.interceptType : null,
+      }))
+      .filter((x) => x.type);
+
+    const postage = Number(r.postage);
+    const taxes = Number(r.taxesFee);
+    const clearance = Number(r.clearanceOperationFee);
+    const tariff = Number(r.tariff);
+    const total = Number(r.totalPostageFee);
+    const fallbackTotal = [postage, taxes, clearance, tariff].every(Number.isFinite)
+      ? postage + taxes + clearance + tariff
+      : Number(r.wrapPostage);
+    const totalUsd = Number.isFinite(total) && total > 0
+      ? total
+      : (Number.isFinite(fallbackTotal) && fallbackTotal > 0 ? fallbackTotal : postage);
+    if (!Number.isFinite(totalUsd) || totalUsd <= 0) continue;
+
+    options.push({
+      code: String(r.optionId ?? option.id ?? logisticsName),
+      logisticsName,
+      label: neutralShippingLabel(logisticsName, arrival.min, arrival.max),
+      channelId: r.channelId ? String(r.channelId) : (channel.id ? String(channel.id) : null),
+      optionId: r.optionId ? String(r.optionId) : (option.id ? String(option.id) : null),
+      priceUsd: Number.isFinite(postage) ? postage : totalUsd,
+      taxesUsd: Number.isFinite(taxes) ? taxes : 0,
+      clearanceUsd: Number.isFinite(clearance) ? clearance : 0,
+      tariffUsd: Number.isFinite(tariff) ? tariff : 0,
+      totalUsd,
+      minDays: arrival.min,
+      maxDays: arrival.max,
+      requirements,
+      raw: row,
+    });
+  }
+
+  return options.sort((a, b) => a.totalUsd - b.totalUsd || (a.minDays ?? 999) - (b.minDays ?? 999));
+}
+
 async function submitOrder(
   connection: AdapterConnection,
   orderContext: Record<string, unknown>,
@@ -635,4 +749,5 @@ export const cjAdapter: SupplierAdapter = {
   fetchInventory,
   submitOrder,
   getOrderStatus,
+  getShippingOptions,
 };
