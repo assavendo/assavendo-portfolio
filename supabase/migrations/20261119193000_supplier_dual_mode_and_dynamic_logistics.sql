@@ -25,19 +25,19 @@ update public.product_variants
 set weight_g = case sku
   when 'AV-LMP-01' then 53
   when 'AV-LMP-02' then 53
-  when 'AV-LMP-03' then 94
-  when 'AV-LMP-04' then 148
+  when 'AV-LMP-03' then 148
+  when 'AV-LMP-04' then 94
   when 'AV-LMP-05' then 141
   when 'AV-LMP-06' then 141
-  when 'AV-LMP-07' then 188
-  when 'AV-LMP-08' then 188
+  when 'AV-LMP-07' then 329
+  when 'AV-LMP-08' then 329
   when 'AV-LMP-09' then 235
   when 'AV-LMP-10' then 235
   when 'AV-LMP-11' then 282
   when 'AV-LMP-12' then 282
-  when 'AV-LMP-13' then 329
-  when 'AV-LMP-14' then 329
-  when 'AV-LMP-15' then 376
+  when 'AV-LMP-13' then 376
+  when 'AV-LMP-14' then 188
+  when 'AV-LMP-15' then 282
   when 'AV-LMP-16' then 376
   when 'AV-LMP-17' then 492
   when 'AV-LMP-18' then 668
