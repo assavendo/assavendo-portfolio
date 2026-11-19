@@ -10,12 +10,21 @@ import { hashIp } from "@/lib/privacy";
 import { TERMS_VERSION, missing as missingLegal } from "@/lib/legal";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { firstRow, sendCartOrderEmail } from "@/lib/orders";
-import { readCart, writeCart } from "@/lib/cart";
+import { readCart, writeCart, loadCart } from "@/lib/cart";
+import { revalidateCartShippingSelection } from "@/lib/dropship/logistics";
 import { formValues } from "@/lib/form";
 import type { FormState } from "./contact";
 
 const schema = z.object({
   email: z.string().trim().email("Cette adresse e-mail semble invalide.").max(320),
+  name: z.string().trim().min(2, "Indiquez le nom du destinataire.").max(120),
+  line1: z.string().trim().min(3, "Indiquez l’adresse de livraison.").max(160),
+  line2: z.string().trim().max(160).optional().or(z.literal("")),
+  postal_code: z.string().trim().min(2, "Indiquez le code postal.").max(12),
+  city: z.string().trim().min(1, "Indiquez la ville.").max(100),
+  country: z.string().trim().regex(/^[A-Z]{2}$/, "Pays de livraison invalide."),
+  phone: z.string().trim().max(30).optional().or(z.literal("")),
+  shipping_method: z.string().trim().min(1, "Choisissez une méthode de livraison.").max(180),
   terms: z.literal("on", { error: "Acceptez les conditions de vente pour continuer." }),
   waiver: z.string().optional(),
 });
@@ -46,25 +55,80 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
 
   const email = parsed.data.email.toLowerCase();
   const db = supabaseAdmin();
-  // 1. Commande + réservation du stock + prix : une seule opération atomique en base (rien n'est créé si une règle échoue).
+  const cart = await loadCart(lines);
+  let shippingCents = 0;
+  let shippingPayload: Record<string, unknown> | null = null;
+  let shippingQuote: Record<string, unknown> | null = null;
+  let shippingMethodCode: string | null = null;
+  let shippingMethodLabel: string | null = null;
+
+  if (cart.hasPhysical) {
+    const allowedCountries = await sellableShippingCountries(db);
+    if (!allowedCountries.includes(parsed.data.country as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry)) {
+      return { ok: false, message: "Cette destination n'est pas encore ouverte à la livraison.", values: keep() };
+    }
+    shippingPayload = {
+      name: parsed.data.name,
+      line1: parsed.data.line1,
+      line2: parsed.data.line2 || null,
+      postal_code: parsed.data.postal_code,
+      city: parsed.data.city,
+      country: parsed.data.country,
+      phone: parsed.data.phone || null,
+    };
+    try {
+      const selected = await revalidateCartShippingSelection(lines, parsed.data.country, parsed.data.shipping_method, shippingPayload);
+      const required = new Map(selected.snapshot.providerOption.requirements.map((r) => [r.type, r]));
+      const values: Record<string, string> = {
+        phone: parsed.data.phone,
+        zip: parsed.data.postal_code,
+        city: parsed.data.city,
+        province: "",
+        recipientName: parsed.data.name,
+        recipientAddress: parsed.data.line1 + (parsed.data.line2 ? " " + parsed.data.line2 : ""),
+        email,
+      };
+      for (const type of required.keys()) {
+        if (!values[type]?.trim()) return { ok: false, message: "Cette méthode exige votre " + type + ". Choisissez une autre méthode ou complétez le champ demandé.", values: keep() };
+      }
+      shippingCents = selected.priceCents;
+      shippingMethodCode = selected.code;
+      shippingMethodLabel = selected.label;
+      shippingQuote = selected.snapshot as unknown as Record<string, unknown>;
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "La méthode de livraison n'est plus disponible.", values: keep() };
+    }
+  }
+
   const { data, error } = await db.rpc("create_cart_order", {
-    p_lines: lines, p_email: email, p_visitor: await visitorId(true), p_terms: TERMS_VERSION, p_waiver: parsed.data.waiver === "on", p_ip_hash: hashIp(ip),
+    p_lines: lines,
+    p_email: email,
+    p_visitor: await visitorId(true),
+    p_terms: TERMS_VERSION,
+    p_waiver: parsed.data.waiver === "on",
+    p_ip_hash: hashIp(ip),
+    p_shipping: shippingPayload,
+    p_shipping_cents: cart.hasPhysical ? shippingCents : null,
+    p_shipping_method_code: shippingMethodCode,
+    p_shipping_method_label: shippingMethodLabel,
+    p_shipping_quote: shippingQuote,
   });
   if (error) { console.error("[checkout] commande", error.message); return { ok: false, message: "Le service est momentanément indisponible. Aucun paiement n'a été demandé. Réessayez dans un instant.", values: keep() }; }
   const order = firstRow<CartOrderRow>(data);
   if (!order || !order.order_id) return { ok: false, message: order?.error ?? "La commande n'a pas pu être créée.", values: keep() };
 
-  // 2. Commande gratuite : finalisation directe, sans Stripe.
   if (order.amount_cents === 0) {
     const { data: f, error: fe } = await db.rpc("fulfil_cart_order", { p_order_id: order.order_id, p_session_id: null, p_amount: 0, p_currency: "eur", p_payment_intent: null, p_email: email, p_paid_at: new Date().toISOString(), p_shipping: null, p_billing: null, p_ttl_days: 30 });
-    const r = firstRow<{ result: string }>(f);
-    if (fe || !r || (r.result !== "fulfilled" && r.result !== "already")) { console.error("[checkout] gratuit", fe?.message ?? r?.result); return { ok: false, message: "Nous n'avons pas pu finaliser votre commande. Réessayez dans un instant.", values: keep() }; }
+    const rr = firstRow<{ result: string }>(f);
+    if (fe || !rr || (rr.result !== "fulfilled" && rr.result !== "already")) {
+      console.error("[checkout] gratuit", fe?.message ?? rr?.result);
+      return { ok: false, message: "Nous n'avons pas pu finaliser votre commande. Réessayez dans un instant.", values: keep() };
+    }
     await writeCart([]);
     const sent = await sendCartOrderEmail(db, order.order_id);
     return { ok: true, message: sent ? "C'est fait : consultez votre boîte e-mail (pensez aux courriers indésirables)." : "Votre commande est enregistrée mais l'e-mail n'a pas pu partir. Écrivez-nous et nous vous l'enverrons." };
   }
 
-  // 3. Commande payante : session Stripe liée à la commande (clé d'idempotence = identifiant de commande).
   const cancel = async (why: string) => {
     console.error("[checkout] Stripe", why);
     await db.rpc("release_order_stock", { p_order_id: order.order_id });
@@ -72,37 +136,23 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
     return { ok: false, message: "Le paiement n'a pas pu être lancé. Aucun montant n'a été prélevé. Réessayez dans un instant.", values: keep() } as FormState;
   };
   if (missingLegal.length) {
-    console.error("[checkout] informations légales manquantes", missingLegal.join(", "));
+    await db.rpc("release_order_stock", { p_order_id: order.order_id });
+    await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
     return { ok: false, message: "Les commandes ne sont pas encore ouvertes. Les informations légales du vendeur doivent être finalisées.", values: keep() };
   }
   if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
-    await db.rpc("release_order_stock", { p_order_id: order.order_id }); await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
+    await db.rpc("release_order_stock", { p_order_id: order.order_id });
+    await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
     return { ok: false, message: "Le paiement n'est pas encore activé sur ce site." };
   }
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   const taxOn = process.env.STRIPE_TAX_ENABLED === "true";
   const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = order.items.filter((i) => i.unit_price_cents > 0).map((i) => ({
     quantity: i.qty,
-    price_data: { currency: "eur", unit_amount: i.unit_price_cents, tax_behavior: "inclusive", product_data: { name: i.variant_label ? `${i.title} (${i.variant_label})` : i.title, ...(i.image?.startsWith("https://") ? { images: [i.image] } : {}) } },
+    price_data: { currency: "eur", unit_amount: i.unit_price_cents, tax_behavior: "inclusive", product_data: { name: i.variant_label ? i.title + " (" + i.variant_label + ")" : i.title } },
   }));
-  if (order.shipping_cents > 0) line_items.push({ quantity: 1, price_data: { currency: "eur", unit_amount: order.shipping_cents, tax_behavior: "inclusive", product_data: { name: "Livraison" } } });
+  if (order.shipping_cents > 0) line_items.push({ quantity: 1, price_data: { currency: "eur", unit_amount: order.shipping_cents, tax_behavior: "inclusive", product_data: { name: shippingMethodLabel ? "Livraison · " + shippingMethodLabel : "Livraison" } } });
   let url: string | null = null;
-  let allowedCountries: string[] = [];
-  if (order.has_physical) {
-    try {
-      allowedCountries = await sellableShippingCountries(db);
-    } catch (e) {
-      console.error("[checkout] marchés", e instanceof Error ? e.message : e);
-      await db.rpc("release_order_stock", { p_order_id: order.order_id });
-      await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
-      return { ok: false, message: "La livraison n'est pas momentanément disponible. Réessayez plus tard.", values: keep() };
-    }
-    if (!allowedCountries.length) {
-      await db.rpc("release_order_stock", { p_order_id: order.order_id });
-      await db.from("orders").update({ status: "canceled" }).eq("id", order.order_id);
-      return { ok: false, message: "Aucun marché de livraison n'est actuellement ouvert pour les produits physiques.", values: keep() };
-    }
-  }
   try {
     const session = await stripe.checkout.sessions.create({
       ui_mode: "hosted_page",
@@ -115,22 +165,21 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
       automatic_tax: { enabled: taxOn },
       allow_promotion_codes: false,
       submit_type: "auto",
-      name_collection: { individual: { enabled: true } },
+      name_collection: { individual: { enabled: false } },
       integration_identifier: "hosted_web_0002",
       origin_context: "web",
-      ...(order.has_physical ? { shipping_address_collection: { allowed_countries: allowedCountries } } : {}),
       invoice_creation: { enabled: true },
-      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,   // la réservation de stock dure 35 minutes : la session expire avant
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       line_items,
-      metadata: { orderId: order.order_id },
+      metadata: { orderId: order.order_id, shippingMethod: shippingMethodCode ?? "" },
       payment_intent_data: { metadata: { orderId: order.order_id } },
-      success_url: `${siteUrl}/paiement/retour?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/commande?paiement=annule`,
-    }, { idempotencyKey: `checkout-${order.order_id}` });
+      success_url: siteUrl + "/paiement/retour?session_id={CHECKOUT_SESSION_ID}",
+      cancel_url: siteUrl + "/commande?paiement=annule",
+    }, { idempotencyKey: "checkout-" + order.order_id });
     url = session.url;
     if (!url) throw new Error("URL de paiement absente");
     const { error: ue } = await db.from("orders").update({ stripe_session_id: session.id }).eq("id", order.order_id);
-    if (ue) console.error("[checkout] session non liée (le webhook retrouvera la commande par son identifiant)", order.order_id, ue.message);
+    if (ue) throw new Error("La session Stripe n'a pas pu être associée à la commande.");
   } catch (e) { return cancel(e instanceof Error ? e.message : String(e)); }
   redirect(url);
 }
