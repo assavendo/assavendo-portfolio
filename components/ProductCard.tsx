@@ -3,6 +3,7 @@ import Link from "next/link";
 import { eur, type Product, type Variant } from "@/lib/types";
 import { isAvailable } from "@/lib/search";
 import { priceFrom } from "@/lib/catalog";
+import { publicImageUrl } from "@/lib/images";
 
 export const KIND_LABEL = { physical: "Produit physique", digital: "Téléchargement", service: "Service" } as const;
 
@@ -16,7 +17,7 @@ export function ProductCard({ p, variants = [] }: { p: Product; variants?: Varia
   return (
     <article className={`card pcard${ok ? "" : " is-out"}`}>
       <div className="card-media">
-        {p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt || p.title} fill sizes="(max-width: 700px) 50vw, (max-width: 1100px) 33vw, 280px" unoptimized /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}
+        {p.images[0] ? <Image src={publicImageUrl(p.images[0].url, p.seller_type === "supplier")} alt={p.images[0].alt || p.title} fill sizes="(max-width: 700px) 50vw, (max-width: 1100px) 33vw, 280px" unoptimized /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}
         {old && ok ? <span className="tag tag-promo">−{pct} %</span> : null}
       </div>
       <div className="card-body">
