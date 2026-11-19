@@ -354,14 +354,84 @@ export async function deleteSupplierMapping(form: FormData) {
   return done("Mapping supprimé.");
 }
 
+export async function recordManualSupplierOrder(form: FormData) {
+  await requireAdmin();
+  const id = z.string().uuid().parse(form.get("id"));
+  const parsed = z.object({
+    status: z.enum(["manual_pending","submitted","confirmed","processing","shipped","delivered","canceled","needs_review"]),
+    external_order_id: z.string().trim().max(180).optional().or(z.literal("")),
+    logistics_name: z.string().trim().max(180).optional().or(z.literal("")),
+    tracking_number: z.string().trim().max(180).optional().or(z.literal("")),
+    tracking_url: z.string().trim().url().max(500).optional().or(z.literal("")),
+    manual_note: z.string().trim().max(2000).optional().or(z.literal("")),
+  }).parse(Object.fromEntries(form));
+
+  const db = supabaseAdmin();
+  const { data: row, error: readError } = await db.from("supplier_orders")
+    .select("id,order_id,fulfillment_mode,status,external_order_id,tracking_number,tracking_url")
+    .eq("id", id).maybeSingle();
+  if (readError || !row) throw new Error("Commande fournisseur introuvable.");
+  if (row.fulfillment_mode !== "manual") throw new Error("Cette commande est en mode automatique et ne peut pas être traitée manuellement ici.");
+
+  const now = new Date().toISOString();
+  const supplierStatus = parsed.data.status;
+  const { error } = await db.from("supplier_orders").update({
+    status: supplierStatus,
+    external_order_id: parsed.data.external_order_id || null,
+    logistics_name: parsed.data.logistics_name || null,
+    tracking_number: parsed.data.tracking_number || null,
+    tracking_url: parsed.data.tracking_url || null,
+    manual_note: parsed.data.manual_note || null,
+    manual_processed_at: now,
+    submitted_at: ["submitted","confirmed","processing","shipped","delivered"].includes(supplierStatus) ? now : undefined,
+    last_error: supplierStatus === "needs_review" ? (parsed.data.manual_note || "Vérification manuelle requise.") : null,
+    next_attempt_at: null,
+  }).eq("id", id);
+  if (error) throw new Error("Traitement manuel non enregistré : " + error.message);
+
+  const itemStatus = supplierStatus === "delivered" ? "delivered" : supplierStatus === "canceled" ? "canceled" : ["submitted","confirmed","processing","shipped"].includes(supplierStatus) ? "submitted" : supplierStatus;
+  const { error: itemError } = await db.from("supplier_order_items").update({ status: itemStatus }).eq("supplier_order_id", id);
+  if (itemError) throw new Error("La commande fournisseur est enregistrée mais le statut de ses lignes n'a pas pu être synchronisé.");
+
+  if (supplierStatus === "needs_review") {
+    await db.from("orders").update({ needs_review: true, review_note: parsed.data.manual_note || "Traitement fournisseur manuel en revue." }).eq("id", row.order_id);
+  } else if (supplierStatus === "shipped" || supplierStatus === "delivered") {
+    const fulfilment = supplierStatus === "delivered" ? "delivered" : "shipped";
+    const { error: orderError } = await db.from("orders").update({
+      needs_review: false,
+      review_note: null,
+      fulfilment,
+      tracking_number: parsed.data.tracking_number || null,
+      tracking_url: parsed.data.tracking_url || null,
+      delivered_at: supplierStatus === "delivered" ? now : undefined,
+    }).eq("id", row.order_id).eq("status","paid");
+    if (orderError) throw new Error("Le suivi est enregistré côté fournisseur mais le statut client n'a pas pu être synchronisé.");
+    const { error: groupError } = await db.from("supplier_order_groups").update({ status: supplierStatus === "delivered" ? "complete" : "processing" }).eq("order_id", row.order_id);
+    if (groupError) throw new Error("Le suivi est enregistré mais le groupe fournisseur n'a pas pu être synchronisé.");
+  } else if (supplierStatus === "canceled") {
+    const { error: orderError } = await db.from("orders").update({ needs_review: true, review_note: parsed.data.manual_note || "Commande fournisseur annulée; vérification humaine requise." }).eq("id", row.order_id);
+    if (orderError) throw new Error("La commande fournisseur est annulée mais l'état client n'a pas pu être annoté.");
+    const { error: groupError } = await db.from("supplier_order_groups").update({ status: "needs_review" }).eq("order_id", row.order_id);
+    if (groupError) throw new Error("Le groupe fournisseur n'a pas pu être basculé en revue.");
+  } else {
+    const fulfilment = ["submitted","confirmed","processing"].includes(supplierStatus) ? "preparing" : "to_prepare";
+    await db.from("orders").update({ fulfilment }).eq("id", row.order_id).eq("status","paid");
+    await db.from("supplier_order_groups").update({ status: supplierStatus === "manual_pending" ? "manual_pending" : "processing" }).eq("order_id", row.order_id);
+  }
+  return done("Traitement fournisseur manuel enregistré.");
+}
+
 export async function retrySupplierOrder(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
-  const { error } = await supabaseAdmin().from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).in("status", ["failed","needs_review"]);
+  const db = supabaseAdmin();
+  const { data: row, error: readError } = await db.from("supplier_orders").select("id,fulfillment_mode").eq("id", id).maybeSingle();
+  if (readError || !row) throw new Error("Commande fournisseur introuvable.");
+  if (row.fulfillment_mode !== "auto") throw new Error("Cette commande est en mode manuel : utilisez le traitement manuel.");
+  const { error } = await db.from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).in("status", ["failed","needs_review"]);
   if (error) throw new Error("Impossible de remettre la commande fournisseur dans la file : " + error.message);
   await dispatchSupplierOrders(1);
-  return done("Commande fournisseur remise en traitement.");
-}
+  return done("Commande fournisseur automatique remise en traitement.");
 
 export async function generateWebhookSecret() {
   await requireAdmin();
