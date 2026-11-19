@@ -205,7 +205,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     if (retail !== null) productUpdate.price_cents = retail;
     await checkedWrite(`Écriture produit ${mapping.product_id}`, db.from("products").update(productUpdate).eq("id", mapping.product_id));
     if (priceChanged) {
-      await db.from("supplier_price_history").insert({
+      await checkedWrite(`Historique prix mapping ${mapping.id}`, db.from("supplier_price_history").insert({
         mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail ?? product?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
       }));
