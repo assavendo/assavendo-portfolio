@@ -23,10 +23,11 @@ async function createSupplierMappingsForDraft(
   productId: string,
   supplierConnectionId: string | null,
   supplierVariants: Array<{ sku?: string; label?: string; options?: Record<string, string> }>,
+  fallbackProductSku?: string | null,
 ): Promise<{ created: number; error?: string }> {
-  if (!supplierConnectionId || !supplierVariants.length) return { created: 0 };
+  if (!supplierConnectionId) return { created: 0 };
 
-  const { data: markets } = await db.from("markets")
+  const { data: markets, error: marketError } = await db.from("markets")
     .select("code")
     .eq("sell_enabled", true)
     .eq("ship_enabled", true)
@@ -35,29 +36,55 @@ async function createSupplierMappingsForDraft(
     .in("compliance_status", ["approved", "legacy"])
     .in("pricing_status", ["approved", "legacy"])
     .in("payment_status", ["approved", "legacy"]);
+  if (marketError) return { created: 0, error: "Impossible de lire les marchés autorisés." };
   const countries = (markets ?? []).map((m) => String(m.code).toUpperCase()).filter(Boolean);
   if (!countries.length) return { created: 0, error: "Aucun marché autorisé n'est actuellement disponible; aucun routage fournisseur n'a été créé." };
 
+  const cleanVariants = supplierVariants.map((v) => ({
+    sku: String(v.sku ?? "").trim(),
+    label: String(v.label ?? "").trim().toLowerCase(),
+    options: Object.fromEntries(Object.entries(v.options ?? {}).map(([k,val]) => [k.trim().toLowerCase(), String(val).trim().toLowerCase()])),
+  })).filter((v) => v.sku);
+
+  const unique = new Map<string, typeof cleanVariants[number]>();
+  for (const item of cleanVariants) unique.set(item.sku.toUpperCase(), item);
+  if (!unique.size && fallbackProductSku?.trim()) {
+    unique.set(fallbackProductSku.trim().toUpperCase(), { sku: fallbackProductSku.trim(), label: "", options: {} });
+  }
+  if (!unique.size) return { created: 0, error: "Aucune référence fournisseur exploitable n'a été fournie par la source; aucun mapping silencieux n'est autorisé." };
+
   const { data: productVariants, error: variantsError } = await db.from("product_variants")
-    .select("id,sort")
+    .select("id,sort,label,options")
     .eq("product_id", productId)
     .order("sort");
   if (variantsError) return { created: 0, error: "Impossible de lire les variantes internes après création." };
 
-  let created = 0;
-  for (let index = 0; index < supplierVariants.length && index < (productVariants ?? []).length; index += 1) {
-    const supplierSku = String(supplierVariants[index]?.sku ?? "").trim();
-    const variantId = String(productVariants?.[index]?.id ?? "");
-    if (!supplierSku || !variantId) continue;
+  const availableInternal = (productVariants ?? []).map((v) => ({
+    id: String(v.id), sort: Number(v.sort ?? 0), label: String(v.label ?? "").trim().toLowerCase(),
+    options: Object.fromEntries(Object.entries(v.options && typeof v.options === "object" ? v.options : {}).map(([k,val]) => [k.trim().toLowerCase(), String(val).trim().toLowerCase()])),
+  }));
+  const resolveVariantId = (source: typeof cleanVariants[number], index: number): string | null => {
+    if (!availableInternal.length) return null;
+    const exact = availableInternal.find((v) => source.label && v.label === source.label && JSON.stringify(v.options) === JSON.stringify(source.options));
+    if (exact) return exact.id;
+    const byLabel = availableInternal.find((v) => source.label && v.label === source.label);
+    if (byLabel) return byLabel.id;
+    if (availableInternal.length === cleanVariants.length && availableInternal[index]) return availableInternal[index].id;
+    return null;
+  };
 
+  let created = 0;
+  for (const [index, source] of [...unique.values()].entries()) {
+    const supplierSku = source.sku;
+    const variantId = resolveVariantId(source, index);
     const { data: existing, error: existingError } = await db.from("product_supplier_mappings")
       .select("id,product_id,variant_id")
       .eq("supplier_connection_id", supplierConnectionId)
       .eq("external_sku", supplierSku)
       .maybeSingle();
     if (existingError) return { created, error: "Impossible de vérifier les mappings fournisseur existants." };
-    if (existing && (String(existing.product_id) !== productId || String(existing.variant_id ?? "") !== variantId)) {
-      return { created, error: "Le SKU fournisseur " + supplierSku + " est déjà rattaché à un autre produit." };
+    if (existing && (String(existing.product_id) !== productId || String(existing.variant_id ?? "") !== String(variantId ?? ""))) {
+      return { created, error: "Le SKU fournisseur " + supplierSku + " est déjà rattaché à un autre produit ou une autre variante." };
     }
 
     const mappingRow = {
@@ -74,6 +101,7 @@ async function createSupplierMappingsForDraft(
       max_retail_cents: null,
       priority: 100,
       destination_countries: countries,
+      logistics_properties: ["COMMON"],
     };
 
     if (existing?.id) {
@@ -87,6 +115,7 @@ async function createSupplierMappingsForDraft(
   }
   return { created };
 }
+
 const optionalUuid = (value: FormDataEntryValue | null) => {
   if (!value) return null;
   const parsed = z.string().uuid().safeParse(String(value));
@@ -516,6 +545,7 @@ export async function decideTask(form: FormData) {
         createdId,
         supplierConnectionId && /^[0-9a-f-]{36}$/i.test(supplierConnectionId) ? supplierConnectionId : null,
         variants.map((variant) => ({ sku: variant.sku, label: variant.label, options: variant.options })),
+        typeof extracted.sku === "string" ? extracted.sku : null,
       );
       if (mappingResult.error) return back("Le brouillon a été créé mais le routage fournisseur n'est pas complet : " + mappingResult.error, "erreur");
       const { data: linked, error: linkError } = await db.from("dropship_imports").update({ status: "approved", product_id: createdId, decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at, error: null }).eq("id", importId).eq("status", "needs_review").select("id").maybeSingle();
