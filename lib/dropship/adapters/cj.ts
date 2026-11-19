@@ -380,6 +380,7 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
           supplier_qty: match.qty,
           supplier_price_cents: parseMoney(variant.variantSellPrice),
           supplier_currency: "USD",
+          supplier_weight_g: Number(variant.variantWeight) > 0 ? Number(variant.variantWeight) : null,
           available: match.qty > 0,
           raw: { variant, inventories: match.raw, pid, batched: true },
         });
@@ -415,6 +416,7 @@ async function fetchInventory(connection: AdapterConnection, externalSkus: strin
       supplier_qty: qty,
       supplier_price_cents: parseMoney(variant.variantSellPrice),
       supplier_currency: "USD",
+      supplier_weight_g: Number(variant.variantWeight) > 0 ? Number(variant.variantWeight) : null,
       available: qty > 0,
       raw: { variant, sku, inventories, batched: false },
     });
