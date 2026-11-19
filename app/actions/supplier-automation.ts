@@ -93,6 +93,7 @@ function parseTemplate(value: string) {
 export async function saveSupplierConnection(form: FormData) {
   const { user } = await requireAdmin();
   const parsed = connectionSchema.safeParse(Object.fromEntries(form));
+  const d = parsed.data;
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Configuration fournisseur invalide.");
   let template: unknown;
   try { template = parseTemplate(d.order_payload_template); } catch (error) { throw new Error(error instanceof Error ? error.message : "Template JSON invalide."); }
