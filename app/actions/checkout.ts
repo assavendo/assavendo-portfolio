@@ -78,19 +78,8 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
     };
     try {
       const selected = await revalidateCartShippingSelection(lines, parsed.data.country, parsed.data.shipping_method, shippingPayload);
-      const required = new Map(selected.snapshot.providerOption.requirements.map((r) => [r.type, r]));
-      const values: Record<string, string> = {
-        phone: parsed.data.phone ?? "",
-        zip: parsed.data.postal_code,
-        city: parsed.data.city,
-        province: "",
-        recipientName: parsed.data.name,
-        recipientAddress: parsed.data.line1 + (parsed.data.line2 ? " " + parsed.data.line2 : ""),
-        email,
-      };
-      for (const type of required.keys()) {
-        if (!values[type]?.trim()) return { ok: false, message: "Cette méthode exige votre " + type + ". Choisissez une autre méthode ou complétez le champ demandé.", values: keep() };
-      }
+      // Les exigences provider sont revalidées dans lib/dropship/logistics.ts,
+      // avec les expressions exactes retournées par CJ. Le champ iossNumber reste interne à CJ.
       shippingCents = selected.priceCents;
       shippingMethodCode = selected.code;
       shippingMethodLabel = selected.label;
