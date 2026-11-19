@@ -77,4 +77,5 @@ export type SupplierAdapter = {
   submitOrder: (connection: AdapterConnection, orderContext: Record<string, unknown>, idempotencyKey: string) => Promise<AdapterOrderResult>;
   getOrderStatus: (connection: AdapterConnection, externalOrderId: string, context: Record<string, unknown>) => Promise<AdapterOrderResult>;
   getShippingOptions?: (connection: AdapterConnection, context: AdapterShippingContext) => Promise<AdapterShippingOption[]>;
+  getBalanceUsd?: (connection: AdapterConnection) => Promise<number>;
 };
