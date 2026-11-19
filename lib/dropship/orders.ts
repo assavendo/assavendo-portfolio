@@ -189,10 +189,13 @@ function orderContext(order: any, supplierItems: any[]) {
       created_at: order.created_at,
       currency: order.currency,
       amount_cents: order.amount_cents,
+      subtotal_cents: order.subtotal_cents,
     },
     customer: { email: order.customer_email },
     shipping: order.shipping ?? {},
     billing: order.billing ?? {},
+    shipping_quote: order.shipping_quote ?? null,
+    shipping_method_code: order.shipping_method_code ?? null,
     items: supplierItems.map((item) => ({
       sku: item.external_sku,
       external_product_id: item.external_product_id ?? null,
