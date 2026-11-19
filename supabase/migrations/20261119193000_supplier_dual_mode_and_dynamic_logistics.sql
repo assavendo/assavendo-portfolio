@@ -54,6 +54,15 @@ alter table public.supplier_orders
   add column if not exists manual_processed_at timestamptz;
 
 alter table public.supplier_orders
+  drop constraint if exists supplier_orders_status_check;
+
+alter table public.supplier_orders
+  add constraint supplier_orders_status_check
+  check (status = any (array[
+    'queued','manual_pending','submitting','submitted','confirmed','processing','shipped','delivered','canceled','failed','unknown','needs_review'
+  ]));
+
+alter table public.supplier_orders
   drop constraint if exists supplier_orders_fulfillment_mode_check;
 
 alter table public.supplier_orders
