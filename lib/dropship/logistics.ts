@@ -129,7 +129,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
     const ctx = contexts.get(mapping.supplier_connection_id)!;
     const existing = ctx.skuLines.find((x) => x.sku === mapping.external_sku && x.variantId === mapping.external_variant_id);
     if (existing) existing.quantity += item.line.q;
-    else ctx.skuLines.push({ sku: mapping.external_sku, variantId: mapping.external_variant_id, quantity: item.line.q, weightG });
+    else ctx.skuLines.push({ sku: mapping.external_sku, variantId: mapping.external_variant_id, quantity: item.line.q, weightG, volumeCm3 });
     ctx.weightG += weightG * item.line.q;
     ctx.volumeCm3 += volumeCm3 * item.line.q;
     for (const prop of Array.isArray(mapping.logistics_properties) ? mapping.logistics_properties : []) {
@@ -144,7 +144,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
   if (!ctx.props.size) ctx.props.add("COMMON");
   return {
     cart, connection: ctx.connection, skuLines: ctx.skuLines, productProperties: [...ctx.props],
-    weightG: Math.max(1, Math.round(ctx.weightG)), wrapWeightG, totalGoodsAmountEur, shipping: shipping ?? {},
+    weightG: Math.max(1, Math.round(ctx.weightG)), volumeCm3: Math.max(0.001, ctx.volumeCm3), wrapWeightG, totalGoodsAmountEur, shipping: shipping ?? {},
   };
 }
 
