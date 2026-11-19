@@ -328,6 +328,14 @@ async function testConnection(connection: AdapterConnection) {
   };
 }
 
+async function getBalanceUsd(connection: AdapterConnection): Promise<number> {
+  const { token } = await ensureAccessToken(connection);
+  const data = await cjFetch<{ amount?: number }>(connection, "/shopping/pay/getBalance", "GET", undefined, undefined, token);
+  const balance = Number(data?.amount);
+  if (!Number.isFinite(balance) || balance < 0) throw new Error("Le solde CJ retourné est invalide.");
+  return balance;
+}
+
 async function fetchInventory(connection: AdapterConnection, externalSkus: string[]): Promise<AdapterInventoryRecord[]> {
   const { token } = await ensureAccessToken(connection);
   const uniqueSkus = [...new Set(externalSkus.map((sku) => sku.trim()).filter(Boolean))].slice(0, 100);
@@ -421,11 +429,20 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
   if (!items.length) throw new Error("Aucun article CJ à commander.");
 
   const fromCountryCode = configString(connection, "cj_from_country_code", "CN").toUpperCase();
-  const logisticName = configString(connection, "cj_logistic_name");
+  const shippingQuote = orderContext.shipping_quote && typeof orderContext.shipping_quote === "object"
+    ? orderContext.shipping_quote as Record<string, unknown>
+    : {};
+  const providerOption = shippingQuote.providerOption && typeof shippingQuote.providerOption === "object"
+    ? shippingQuote.providerOption as Record<string, unknown>
+    : {};
+  const logisticName = String(providerOption.logisticsName ?? configString(connection, "cj_logistic_name")).trim();
   const shopLogisticsType = Number(connection.config?.cj_shop_logistics_type ?? 2);
   const payType = Number(connection.config?.cj_pay_type ?? 2);
-  const iossType = Number(connection.config?.cj_ioss_type ?? 3);
-  const iossNumber = configString(connection, "cj_ioss_number", iossType === 3 ? "CJ-IOSS" : "");
+  const order = orderContext.order && typeof orderContext.order === "object" ? orderContext.order as Record<string, unknown> : {};
+  const goodsValueCents = Number(order.subtotal_cents ?? order.amount_cents ?? 0);
+  const configuredIossType = Number(connection.config?.cj_ioss_type ?? 3);
+  const iossType = goodsValueCents > 15000 ? 1 : configuredIossType;
+  const iossNumber = iossType === 1 ? "" : configString(connection, "cj_ioss_number", iossType === 3 ? "CJ-IOSS" : "");
   const platform = configString(connection, "cj_platform", "Api");
   const country = destinationCountry(orderContext);
 
@@ -436,7 +453,7 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
   if ((iossType === 2 || iossType === 3) && !iossNumber) throw new Error("Configurez cj_ioss_number pour ce mode IOSS.");
 
   return {
-    orderNumber: String((orderContext.order as Record<string, unknown> | undefined)?.order_number ?? (orderContext.order as Record<string, unknown> | undefined)?.id),
+    orderNumber: String(order.order_number ?? order.id ?? ""),
     shippingZip: String(shipping.postal_code ?? shipping.postalCode ?? ""),
     shippingCountry: String(shipping.country ?? country),
     shippingCountryCode: country,
@@ -448,7 +465,7 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
     shippingAddress: String(shipping.line1 ?? shipping.address1 ?? shipping.address ?? ""),
     shippingAddress2: String(shipping.line2 ?? shipping.address2 ?? ""),
     email: String((orderContext.customer as Record<string, unknown> | undefined)?.email ?? ""),
-    remark: String((orderContext.order as Record<string, unknown> | undefined)?.order_number ?? ""),
+    remark: String(order.order_number ?? ""),
     payType,
     iossType,
     ...(iossType === 1 ? {} : { iossNumber }),
@@ -459,7 +476,7 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
     shopLogisticsType,
     storeName: configString(connection, "cj_store_name") || undefined,
     storeOrderTime: (() => {
-      const createdAt = String((orderContext.order as Record<string, unknown> | undefined)?.created_at ?? "");
+      const createdAt = String(order.created_at ?? "");
       const timestamp = createdAt ? Date.parse(createdAt) : Number.NaN;
       return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : Math.floor(Date.now() / 1000);
     })(),
@@ -750,4 +767,5 @@ export const cjAdapter: SupplierAdapter = {
   submitOrder,
   getOrderStatus,
   getShippingOptions,
+  getBalanceUsd,
 };
