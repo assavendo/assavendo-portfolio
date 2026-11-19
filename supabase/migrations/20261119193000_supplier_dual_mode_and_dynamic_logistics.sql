@@ -141,7 +141,7 @@ declare
   msg text; l record; p public.products%rowtype; v public.product_variants%rowtype; c public.categories%rowtype;
   oid uuid := gen_random_uuid(); price int; avail int; sub int := 0; ship int := 0; phys boolean := false; has_paid_digital boolean := false;
   out_items jsonb := '[]'::jsonb; seen_phys uuid[] := '{}'; nlines int;
-  supplier_enabled boolean; supplier_interval int; supplier_synced_at timestamptz; supplier_mode text;
+  supplier_enabled boolean; supplier_interval int; supplier_synced_at timestamptz; supplier_mode text; dynamic_shipping_applied boolean := false;
 begin
   perform public.expire_stale_orders();
   if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) not between 1 and 20 then
@@ -240,7 +240,14 @@ begin
 
       if not (p.id = any (seen_phys)) then
         seen_phys := seen_phys || p.id;
-        ship := ship + coalesce(p_shipping_cents, p.shipping_cents, 0);
+        if p.seller_type = 'supplier' and p_shipping_cents is not null then
+          if not dynamic_shipping_applied then
+            ship := ship + p_shipping_cents;
+            dynamic_shipping_applied := true;
+          end if;
+        else
+          ship := ship + coalesce(p.shipping_cents, 0);
+        end if;
       end if;
     elsif p.kind = 'digital' and price > 0 then
       has_paid_digital := true;
