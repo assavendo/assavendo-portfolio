@@ -34,6 +34,18 @@ async function assertDb<T>(operation: PromiseLike<{ data?: T; error: { message?:
   return result.data;
 }
 
+type SyncProductRow = {
+  kind: string;
+  status: string;
+  price_cents: number | null;
+  shipping_cents: number | null;
+  delivery_min_days: number | null;
+  delivery_max_days: number | null;
+  images: unknown;
+  stock_qty: number | null;
+  category_id: string | null;
+};
+
 function retailFromCost(mapping: Mapping, costCents: number): number | null {
   if (!mapping.auto_reprice || mapping.reprice_mode === "cost_only") return null;
   let retail = costCents;
@@ -69,7 +81,9 @@ async function refreshSyncedProducts(
   let published = 0;
 
   for (const productId of ids) {
-    const product = await assertDb(db.from("products").select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty,category_id").eq("id", productId).maybeSingle(), "Lecture produit");
+    const productResult = await db.from("products").select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty,category_id").eq("id", productId).maybeSingle();
+    if (productResult.error) throw new Error("Lecture produit: " + productResult.error.message);
+    const product = productResult.data as SyncProductRow | null;
     if (!product || product.kind !== "physical") continue;
 
     const variants = await assertDb(db.from("product_variants").select("price_cents,stock_qty,active").eq("product_id", productId).eq("active", true).order("sort"), "Lecture variantes") ?? [];
