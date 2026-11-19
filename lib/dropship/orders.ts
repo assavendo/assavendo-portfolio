@@ -65,7 +65,7 @@ export async function queueSupplierOrders(orderId: string) {
   const country = String((order.shipping as { country?: string; countryCode?: string } | null)?.countryCode ?? (order.shipping as { country?: string } | null)?.country ?? "").trim().toUpperCase();
   const supportsCountry = (m: Mapping) => !m.destination_countries?.length || !country || m.destination_countries.includes(country);
 
-  const selected = new Map<string, { mapping: Mapping; items: Item[]; ready: boolean }>();
+  const selected = new Map<string, { connectionId: string; mapping: Mapping; items: Item[]; ready: boolean }>();
   let needsReview = false;
 
   for (const item of (items ?? []) as Item[]) {
@@ -76,30 +76,52 @@ export async function queueSupplierOrders(orderId: string) {
       supportsCountry(m) &&
       connections.has(m.supplier_connection_id)
     );
+
     const ranked = candidates.sort((a, b) => {
-      const ca = connections.get(a.supplier_connection_id)!; const cb = connections.get(b.supplier_connection_id)!;
-      const aReady = a.available && a.supplier_qty >= item.qty && Number(a.supplier_cost_cents) >= 0 && String(a.supplier_currency).toLowerCase() === "eur" && isFresh(a, Number(ca.sync_interval_seconds ?? 900));
-      const bReady = b.available && b.supplier_qty >= item.qty && Number(b.supplier_cost_cents) >= 0 && String(b.supplier_currency).toLowerCase() === "eur" && isFresh(b, Number(cb.sync_interval_seconds ?? 900));
+      const ca = connections.get(a.supplier_connection_id)!;
+      const cb = connections.get(b.supplier_connection_id)!;
+      const aReady = a.available && a.supplier_qty >= item.qty && a.supplier_cost_cents != null &&
+        String(a.supplier_currency).toLowerCase() === "eur" &&
+        isFresh(a, Number(ca.sync_interval_seconds ?? 900));
+      const bReady = b.available && b.supplier_qty >= item.qty && b.supplier_cost_cents != null &&
+        String(b.supplier_currency).toLowerCase() === "eur" &&
+        isFresh(b, Number(cb.sync_interval_seconds ?? 900));
       if (aReady !== bReady) return aReady ? -1 : 1;
       if (a.priority !== b.priority) return a.priority - b.priority;
       return (a.supplier_cost_cents ?? Number.MAX_SAFE_INTEGER) - (b.supplier_cost_cents ?? Number.MAX_SAFE_INTEGER);
     });
+
     const chosen = ranked[0];
-    if (!chosen) { needsReview = true; continue; }
+    if (!chosen) {
+      needsReview = true;
+      continue;
+    }
+
     const connection = connections.get(chosen.supplier_connection_id)!;
-    const ready = Boolean(chosen.available && chosen.supplier_qty >= item.qty && chosen.supplier_cost_cents != null && chosen.supplier_currency && chosen.supplier_currency.toLowerCase() === "eur" && isFresh(chosen, Number(connection.sync_interval_seconds ?? 900)));
+    const ready = Boolean(
+      chosen.available &&
+      chosen.supplier_qty >= item.qty &&
+      chosen.supplier_cost_cents != null &&
+      String(chosen.supplier_currency).toLowerCase() === "eur" &&
+      isFresh(chosen, Number(connection.sync_interval_seconds ?? 900))
+    );
     if (!ready) needsReview = true;
-    const current = selected.get(chosen.supplier_connection_id);
-    if (current?.mapping.id === chosen.id) current.items.push(item);
-    else if (current) {
-      const group = selected.get(chosen.supplier_connection_id)!;
-      group.items.push(item);
-    } else selected.set(chosen.supplier_connection_id, { mapping: chosen, items: [item], ready });
+
+    const key = chosen.supplier_connection_id + ":" + chosen.id;
+    const group = selected.get(key);
+    if (group) group.items.push(item);
+    else selected.set(key, {
+      connectionId: chosen.supplier_connection_id,
+      mapping: chosen,
+      items: [item],
+      ready,
+    });
   }
 
   let queued = 0;
   let manual = 0;
-  for (const [connectionId, group] of selected) {
+  for (const [, group] of selected) {
+    const connectionId = group.connectionId;
     const connection = connections.get(connectionId);
     if (!connection) { needsReview = true; continue; }
     const fulfillmentMode = modeFor(connection);
