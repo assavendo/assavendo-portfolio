@@ -25,7 +25,7 @@ export default async function Commande({ searchParams }: { searchParams: Promise
       <h1 style={{ fontSize: "clamp(2rem,4vw,3rem)" }}>Commande</h1>
       {sp.paiement === "annule" ? <p className="alert alert-err" role="status">Paiement annulé : aucun montant n&apos;a été prélevé. Votre panier est conservé.</p> : null}
       <div className="cart-layout">
-        <CheckoutForm hasPaidDigital={cart.hasPaidDigital} hasPhysical={cart.hasPhysical} free={cart.total === 0} totalLabel={cart.total ? eur(cart.total) : "Gratuit"} shippingOptions={shippingOptions} shippingError={shippingError} subtotalCents={cart.subtotal} />
+        <CheckoutForm hasPaidDigital={cart.hasPaidDigital} hasPhysical={cart.hasPhysical} free={cart.total === 0 && (!cart.hasPhysical || !cart.shippingDynamic)} totalLabel={cart.total ? eur(cart.total) : "Gratuit"} shippingOptions={shippingOptions} shippingError={shippingError} subtotalCents={cart.subtotal} />
         <aside className="cart-sum" aria-labelledby="rec-t">
           <h2 id="rec-t" style={{ fontSize: "1.2rem" }}>Votre commande</h2>
           <ul className="plain">{cart.items.map(({ line, product, variant, unit, total }) => <li key={line.p + (line.v ?? "")} style={{ display: "flex", justifyContent: "space-between", gap: ".8rem", padding: ".3rem 0" }}><span>{line.q} × {product.title}{variant ? ` (${variant.label})` : ""}</span><span>{unit ? eur(total) : "Gratuit"}</span></li>)}</ul>
