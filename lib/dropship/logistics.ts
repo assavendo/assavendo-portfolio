@@ -51,7 +51,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
   const productIds = [...new Set(physical.map((item) => item.product.id))];
   const variantIds = physical.map((item) => item.variant?.id).filter((v): v is string => Boolean(v));
   const [mappingResult, connectionResult, variantResult] = await Promise.all([
-    db.from("product_supplier_mappings").select("id,product_id,variant_id,external_sku,external_variant_id,enabled,available,supplier_qty,last_synced_at,destination_countries,logistics_properties,supplier_connection_id,priority").in("product_id", productIds).eq("enabled", true),
+    db.from("product_supplier_mappings").select("id,product_id,variant_id,external_sku,external_variant_id,enabled,available,supplier_qty,last_synced_at,destination_countries,logistics_properties,supplier_weight_g,supplier_connection_id,priority").in("product_id", productIds).eq("enabled", true),
     db.from("supplier_connections").select("id,enabled,fulfillment_mode,auto_order_enabled,sync_interval_seconds,config,adapter,provider_key").eq("enabled", true),
     db.from("product_variants").select("id,product_id,weight_g").in("id", variantIds),
   ]);
@@ -80,7 +80,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
     if (!syncedAt || now - syncedAt > freshness) throw new Error("Le stock fournisseur de « " + item.product.title + " » doit être resynchronisé avant le paiement.");
 
     const variantWeight = item.variant?.id ? variantById.get(item.variant.id)?.weight_g : null;
-    const weightG = Number(variantWeight ?? item.product.weight_g ?? 0);
+    const weightG = Number(mapping.supplier_weight_g ?? variantWeight ?? item.product.weight_g ?? 0);
     if (!Number.isFinite(weightG) || weightG <= 0) throw new Error("Le poids logistique de « " + item.product.title + " » n’est pas configuré.");
     if (!contexts.has(mapping.supplier_connection_id)) contexts.set(mapping.supplier_connection_id, { connection, skuLines: [], props: new Set<string>(), weightG: 0 });
     const ctx = contexts.get(mapping.supplier_connection_id)!;
