@@ -118,7 +118,7 @@ async function normalizeOptions(
     code: optionKey(connectionId, row), label: row.label,
     priceCents: Math.max(1, toEurCents(Math.round(row.totalUsd * 100), "USD", rates)),
     minDays: row.minDays, maxDays: row.maxDays,
-    requirements: [...new Set(row.requirements.map((r) => requirementLabel(r.type)))],
+    requirements: [...new Set(row.requirements.filter((r) => r.type !== "iossNumber").map((r) => requirementLabel(r.type)))],
     connectionId, logisticsName: row.logisticsName,
     snapshot: {
       sourceCountry: String(base.connection.config?.cj_from_country_code ?? "CN").toUpperCase(),
