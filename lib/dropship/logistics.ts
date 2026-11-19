@@ -51,7 +51,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
   const productIds = [...new Set(physical.map((item) => item.product.id))];
   const variantIds = physical.map((item) => item.variant?.id).filter((v): v is string => Boolean(v));
   const [mappingResult, connectionResult, variantResult] = await Promise.all([
-    db.from("product_supplier_mappings").select("id,product_id,variant_id,external_sku,external_variant_id,enabled,available,supplier_qty,last_synced_at,destination_countries,logistics_properties,supplier_weight_g,supplier_connection_id,priority").in("product_id", productIds).eq("enabled", true),
+    db.from("product_supplier_mappings").select("id,product_id,variant_id,external_sku,external_variant_id,enabled,available,supplier_qty,last_synced_at,destination_countries,logistics_properties,supplier_weight_g,supplier_volume_cm3,supplier_connection_id,priority").in("product_id", productIds).eq("enabled", true),
     db.from("supplier_connections").select("id,enabled,fulfillment_mode,auto_order_enabled,sync_interval_seconds,config,adapter,provider_key").eq("enabled", true),
     db.from("product_variants").select("id,product_id,weight_g").in("id", variantIds),
   ]);
@@ -81,13 +81,16 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
 
     const variantWeight = item.variant?.id ? variantById.get(item.variant.id)?.weight_g : null;
     const weightG = Number(mapping.supplier_weight_g ?? variantWeight ?? item.product.weight_g ?? 0);
+    const volumeCm3 = Number(mapping.supplier_volume_cm3 ?? 0);
     if (!Number.isFinite(weightG) || weightG <= 0) throw new Error("Le poids logistique de « " + item.product.title + " » n’est pas configuré.");
-    if (!contexts.has(mapping.supplier_connection_id)) contexts.set(mapping.supplier_connection_id, { connection, skuLines: [], props: new Set<string>(), weightG: 0 });
+    if (!Number.isFinite(volumeCm3) || volumeCm3 <= 0) throw new Error("Le volume logistique de « " + item.product.title + " » n’est pas configuré.");
+    if (!contexts.has(mapping.supplier_connection_id)) contexts.set(mapping.supplier_connection_id, { connection, skuLines: [], props: new Set<string>(), weightG: 0, volumeCm3: 0 });
     const ctx = contexts.get(mapping.supplier_connection_id)!;
     const existing = ctx.skuLines.find((x) => x.sku === mapping.external_sku && x.variantId === mapping.external_variant_id);
     if (existing) existing.quantity += item.line.q;
     else ctx.skuLines.push({ sku: mapping.external_sku, variantId: mapping.external_variant_id, quantity: item.line.q, weightG });
     ctx.weightG += weightG * item.line.q;
+    ctx.volumeCm3 += volumeCm3 * item.line.q;
     for (const prop of Array.isArray(mapping.logistics_properties) ? mapping.logistics_properties : []) {
       if (typeof prop === "string" && prop.trim()) ctx.props.add(prop.trim().toUpperCase());
     }
@@ -107,7 +110,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
 async function normalizeOptions(
   connectionId: string,
   destinationCountry: string,
-  base: { connection: any; weightG: number; wrapWeightG: number; totalGoodsAmountEur: number },
+  base: { connection: any; weightG: number; volumeCm3: number; wrapWeightG: number; totalGoodsAmountEur: number },
   rows: AdapterShippingOption[],
 ): Promise<CheckoutShippingOption[]> {
   const rates = await getRatesToEur(["USD"]);
@@ -119,7 +122,7 @@ async function normalizeOptions(
     connectionId, logisticsName: row.logisticsName,
     snapshot: {
       sourceCountry: String(base.connection.config?.cj_from_country_code ?? "CN").toUpperCase(),
-      destinationCountry, weightG: base.weightG, wrapWeightG: base.wrapWeightG,
+      destinationCountry, weightG: base.weightG, volumeCm3: base.volumeCm3, wrapWeightG: base.wrapWeightG,
       totalGoodsAmountEur: base.totalGoodsAmountEur, quotedAt: new Date().toISOString(),
       providerOption: row,
     },
