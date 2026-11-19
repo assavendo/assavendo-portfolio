@@ -19,6 +19,7 @@ type Mapping = {
   max_retail_cents: number | null;
   supplier_cost_cents: number | null;
   supplier_currency: string | null;
+  supplier_weight_g: number | null;
   supplier_qty: number;
   available: boolean;
   source_cost_cents: number | null;
@@ -233,6 +234,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
   await assertDb(db.from("product_supplier_mappings").update({
     supplier_cost_cents: cost,
     supplier_currency: "eur",
+    supplier_weight_g: record.supplier_weight_g ?? mapping.supplier_weight_g ?? null,
     source_cost_cents: sourceCost,
     source_currency: sourceCurrency,
     fx_rate_to_eur: fxRate,
@@ -265,7 +267,7 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
 
   try {
     const { data: mappings, error: mappingError } = await db.from("product_supplier_mappings")
-      .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,auto_reprice,reprice_mode,margin_bps,markup_cents,min_retail_cents,max_retail_cents,supplier_cost_cents,supplier_currency,supplier_qty,available,source_cost_cents,source_currency,fx_rate_to_eur,external_product_id,external_variant_id")
+      .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,auto_reprice,reprice_mode,margin_bps,markup_cents,min_retail_cents,max_retail_cents,supplier_cost_cents,supplier_currency,supplier_qty,available,source_cost_cents,source_currency,fx_rate_to_eur,external_product_id,external_variant_id,supplier_weight_g")
       .eq("supplier_connection_id", connectionId)
       .eq("enabled", true);
     if (mappingError) throw mappingError;
