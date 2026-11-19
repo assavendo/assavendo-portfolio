@@ -3,6 +3,7 @@ import Link from "next/link";
 import { eur, type Product, type Variant } from "@/lib/types";
 import { isAvailable } from "@/lib/search";
 import { priceFrom } from "@/lib/catalog";
+import { productImageSrc } from "@/lib/images";
 
 export const KIND_LABEL = { physical: "Produit physique", digital: "Téléchargement", service: "Service" } as const;
 
@@ -13,10 +14,11 @@ export function ProductCard({ p, variants = [] }: { p: Product; variants?: Varia
   const old = p.compare_at_cents && p.compare_at_cents > cents ? p.compare_at_cents : null;
   const pct = old ? Math.round((1 - cents / old) * 100) : 0;
   const left = p.kind === "physical" && p.track_stock ? (mine.length ? mine.reduce((s, v) => s + v.stock_qty, 0) : p.stock_qty ?? 0) : null;
+  const imageSrc = p.images[0] ? productImageSrc(p.id, 0, p.images[0].url) : null;
   return (
     <article className={`card pcard${ok ? "" : " is-out"}`}>
       <div className="card-media">
-        {p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt || p.title} fill sizes="(max-width: 700px) 50vw, (max-width: 1100px) 33vw, 280px" unoptimized /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}
+        {imageSrc ? <Image src={imageSrc} alt={p.images[0].alt || p.title} fill sizes="(max-width: 700px) 50vw, (max-width: 1100px) 33vw, 280px" unoptimized /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}
         {old && ok ? <span className="tag tag-promo">−{pct} %</span> : null}
       </div>
       <div className="card-body">

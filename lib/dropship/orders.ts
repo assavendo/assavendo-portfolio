@@ -228,6 +228,7 @@ async function dispatchOne(supplierOrderId: string) {
     .update({ status: "submitting", attempts: nextAttempt, last_attempt_at: new Date().toISOString() })
     .eq("id", supplierOrderId)
     .in("status", ["queued","failed"])
+    .eq("fulfillment_mode", "automatic")
     .select("id,order_id,supplier_connection_id,client_reference,attempts,fulfillment_mode");
   if (claim.error || !(claim.data ?? []).length) return { skipped: true };
   const current = claim.data[0];
@@ -272,7 +273,7 @@ async function dispatchOne(supplierOrderId: string) {
 
 export async function dispatchSupplierOrders(limit = 10) {
   const db = supabaseAdmin();
-  const { data: queued, error } = await db.from("supplier_orders").select("id").in("status", ["queued","failed"]).or("next_attempt_at.is.null,next_attempt_at.lte." + new Date().toISOString()).order("created_at").limit(limit);
+  const { data: queued, error } = await db.from("supplier_orders").select("id").eq("fulfillment_mode", "automatic").in("status", ["queued","failed"]).or("next_attempt_at.is.null,next_attempt_at.lte." + new Date().toISOString()).order("created_at").limit(limit);
   if (error) throw error;
   const results: unknown[] = [];
   for (const row of queued ?? []) {

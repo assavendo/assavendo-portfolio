@@ -117,7 +117,8 @@ async function refreshSyncedProducts(
       stock_qty: stock,
       ...(update.delivery_min_days ? { delivery_min_days: update.delivery_min_days, delivery_max_days: update.delivery_max_days } : {}),
     }).eq("id", productId).eq("status", "draft");
-    if (!publishError) published += 1;
+    if (publishError) throw new Error(`Publication automatique du produit ${productId}: ${publishError.message}`);
+    published += 1;
   }
   return published;
 }
@@ -190,7 +191,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     } else {
       await checkedWrite(`Écriture stock variante ${mapping.variant_id}`, db.from("product_variants").update({ stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id));
       if (priceChanged) {
-        await db.from("supplier_price_history").insert({
+        await checkedWrite(`Historique prix mapping ${mapping.id}`, db.from("supplier_price_history").insert({
           mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
           retail_price_cents: variant?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
         }));

@@ -21,3 +21,10 @@ export function isAllowedImageUrl(value: string): boolean {
     return false;
   }
 }
+
+/** Returns a same-origin URL for approved public product images, hiding supplier CDN domains. */
+export function productImageSrc(productId: string, index: number, sourceUrl: string): string | null {
+  if (sourceUrl.startsWith("/") && !sourceUrl.startsWith("//")) return sourceUrl;
+  if (!isAllowedImageUrl(sourceUrl)) return null;
+  return `/api/catalogue-image/${encodeURIComponent(productId)}/${index}`;
+}

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getProductStats, getPublishedProducts } from "@/lib/data";
 import { visitorId } from "@/lib/visitor";
 import { supabaseAdmin } from "@/lib/supabase/server";
@@ -13,17 +13,26 @@ import { isAvailable } from "@/lib/search";
 import Link from "next/link";
 import { currentCustomer } from "@/lib/customer";
 import { toggleFavorite } from "@/app/actions/account";
+import { productImageSrc } from "@/lib/images";
 
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const slug = (await params).slug;
   const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) return {};
-  return { title: p.title, description: p.summary, alternates: { canonical: `/boutique/${p.slug}` }, openGraph: { images: p.images[0]?.url ? [p.images[0].url] : undefined } };
+  const image = p.images[0]?.url ? productImageSrc(p.id, 0, p.images[0].url) : null;
+  return { title: p.title, description: p.summary, alternates: { canonical: `/boutique/${p.slug}` }, openGraph: { images: image ? [image] : undefined } };
 }
 
 export default async function ProductPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ panier?: string }> }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
-  const p = (await getPublishedProducts()).find((x) => x.slug === slug); if (!p) notFound();
+  const publishedProducts = await getPublishedProducts();
+  const p = publishedProducts.find((x) => x.slug === slug);
+  if (!p) {
+    const { data: alias } = await supabaseAdmin().from("product_slug_redirects").select("product_id").eq("old_slug", slug).maybeSingle();
+    const destination = alias?.product_id ? publishedProducts.find((x) => x.id === alias.product_id) : null;
+    if (destination) redirect(`/boutique/${destination.slug}`);
+    notFound();
+  }
   const stats = await getProductStats(p.id);
   const [allVariants, cats, brands] = await Promise.all([getVariants(), getCategories(), getBrands()]);
   const variants = allVariants.filter((v) => v.product_id === p.id);
@@ -38,15 +47,16 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const vid = await visitorId(false);
   let liked = false;
   if (vid && process.env.SUPABASE_SECRET_KEY) { const { data } = await supabaseAdmin().from("product_likes").select("product_id").eq("product_id", p.id).eq("visitor_id", vid).maybeSingle(); liked = !!data; }
-  const ld = { "@context": "https://schema.org", "@type": "Product", name: p.title, ...(brand ? { brand: { "@type": "Brand", name: brand.name } } : {}), ...(p.sku ? { sku: p.sku } : {}), ...(p.gtin ? { gtin: p.gtin } : {}), description: p.summary, image: p.images.map((i) => i.url), offers: { "@type": "Offer", priceCurrency: "EUR", price: (p.price_cents / 100).toFixed(2), availability: available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock", url: `${siteUrl}/boutique/${p.slug}` }, /* Pas d'aggregateRating : les avis ne sont pas des achats vérifiés de façon exploitable par les moteurs de recherche. */ };
+  const publicImages = p.images.map((image, index) => productImageSrc(p.id, index, image.url)).filter((url): url is string => Boolean(url));
+  const ld = { "@context": "https://schema.org", "@type": "Product", name: p.title, ...(brand ? { brand: { "@type": "Brand", name: brand.name } } : {}), ...(p.sku ? { sku: p.sku } : {}), ...(p.gtin ? { gtin: p.gtin } : {}), description: p.summary, image: publicImages, offers: { "@type": "Offer", priceCurrency: "EUR", price: (p.price_cents / 100).toFixed(2), availability: available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock", url: `${siteUrl}/boutique/${p.slug}` }, /* Pas d'aggregateRating : les avis ne sont pas des achats vérifiés de façon exploitable par les moteurs de recherche. */ };
   return (
     <div className="section"><div className="wrap">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }} />
       <nav className="crumbs" aria-label="Fil d'Ariane"><ol><li><Link href="/">Accueil</Link></li><li><Link href="/boutique">Boutique</Link></li>{crumbs.map((c) => <li key={c.id}><Link href={`/categorie/${c.slug}`}>{c.name}</Link></li>)}<li><span aria-current="page">{p.title}</span></li></ol></nav>
       <div className="p-hero" style={{ alignItems: "start" }}>
         <div className="gallery">
-          <div className="main">{p.images[0] ? <Image src={p.images[0].url} alt={p.images[0].alt || p.title} fill sizes="(max-width: 900px) 100vw, 560px" priority unoptimized style={{ objectFit: "contain", objectPosition: "center" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>
-          {p.images.length > 1 ? <div className="thumbs">{p.images.slice(1, 6).map((i) => <Image key={i.url} src={i.url} alt={i.alt || p.title} width={76} height={43} unoptimized style={{ objectFit: "contain" }} />)}</div> : null}
+          <div className="main">{p.images[0] && productImageSrc(p.id, 0, p.images[0].url) ? <Image src={productImageSrc(p.id, 0, p.images[0].url)!} alt={p.images[0].alt || p.title} fill sizes="(max-width: 900px) 100vw, 560px" priority unoptimized style={{ objectFit: "contain", objectPosition: "center" }} /> : <div className="cover-fallback" aria-hidden="true">{p.title}</div>}</div>
+          {p.images.length > 1 ? <div className="thumbs">{p.images.slice(1, 6).map((i, index) => productImageSrc(p.id, index + 1, i.url) ? <Image key={i.url} src={productImageSrc(p.id, index + 1, i.url)!} alt={i.alt || p.title} width={76} height={43} unoptimized style={{ objectFit: "contain" }} /> : null)}</div> : null}
         </div>
         <div>
           <h1 style={{ fontSize: "clamp(1.9rem,3.6vw,2.8rem)" }}>{p.title}</h1>
