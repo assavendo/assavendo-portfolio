@@ -103,7 +103,7 @@ async function resolveShippingContext(lines: CartLine[], destinationCountry: str
   const connectionById = new Map((connectionResult.data ?? []).map((x) => [x.id, x]));
   const variantById = new Map((variantResult.data ?? []).map((x) => [x.id, x]));
   const now = Date.now();
-  const contexts = new Map<string, { connection: any; skuLines: Array<{ sku: string; variantId?: string | null; quantity: number; weightG?: number | null }>; props: Set<string>; weightG: number }>();
+  const contexts = new Map<string, { connection: any; skuLines: Array<{ sku: string; variantId?: string | null; quantity: number; weightG?: number | null; volumeCm3?: number | null }>; props: Set<string>; weightG: number; volumeCm3: number }>();
 
   for (const item of physical) {
     const matches = (mappingResult.data ?? []).filter((m) =>
