@@ -185,6 +185,13 @@ export async function fetchInventory(connectionId: string, context: Record<strin
   return { connection, records };
 }
 
+export async function getSupplierBalanceUsd(connectionId: string): Promise<number | null> {
+  const connection = await getConnection(connectionId);
+  const adapter = getSupplierAdapter(connection.adapter);
+  if (!adapter?.getBalanceUsd) return null;
+  return adapter.getBalanceUsd(connection as AdapterConnection);
+}
+
 export async function quoteSupplierShipping(connectionId: string, context: import("./adapters/types").AdapterShippingContext): Promise<import("./adapters/types").AdapterShippingOption[]> {
   const connection = await getConnection(connectionId);
   if (!connection.enabled) throw new Error("Supplier connection is disabled.");
