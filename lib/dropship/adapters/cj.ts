@@ -424,12 +424,16 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
   const logisticName = configString(connection, "cj_logistic_name");
   const shopLogisticsType = Number(connection.config?.cj_shop_logistics_type ?? 2);
   const payType = Number(connection.config?.cj_pay_type ?? 2);
+  const iossType = Number(connection.config?.cj_ioss_type ?? 3);
+  const iossNumber = configString(connection, "cj_ioss_number", iossType === 3 ? "CJ-IOSS" : "");
   const platform = configString(connection, "cj_platform", "Api");
   const country = destinationCountry(orderContext);
 
   if (!country) throw new Error("Pays de livraison manquant pour CJ.");
   if (!logisticName) throw new Error("Configurez cj_logistic_name avant l'automatisation CJ.");
   if (![1, 2, 3].includes(shopLogisticsType)) throw new Error("cj_shop_logistics_type doit être 1, 2 ou 3.");
+  if (![1, 2, 3].includes(iossType)) throw new Error("cj_ioss_type doit être 1, 2 ou 3.");
+  if ((iossType === 2 || iossType === 3) && !iossNumber) throw new Error("Configurez cj_ioss_number pour ce mode IOSS.");
 
   return {
     orderNumber: String((orderContext.order as Record<string, unknown> | undefined)?.order_number ?? (orderContext.order as Record<string, unknown> | undefined)?.id),
@@ -446,6 +450,8 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
     email: String((orderContext.customer as Record<string, unknown> | undefined)?.email ?? ""),
     remark: String((orderContext.order as Record<string, unknown> | undefined)?.order_number ?? ""),
     payType,
+    iossType,
+    ...(iossType === 1 ? {} : { iossNumber }),
     isSandbox: connection.sandbox_enabled ? 1 : 0,
     logisticName,
     fromCountryCode,

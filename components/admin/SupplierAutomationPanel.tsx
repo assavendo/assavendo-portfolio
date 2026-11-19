@@ -223,11 +223,15 @@ function ConnectionForm({ c }: { c?: Connection }) {
           <label><div className="saw-label">Store name (optionnel)</div><input className="saw-input" name="cj_store_name" defaultValue={String(c?.config?.cj_store_name ?? "")}/></label>
           <label><div className="saw-label">Paiement CJ</div><select className="saw-select" name="cj_pay_type" defaultValue={String(c?.config?.cj_pay_type ?? 2)}><option value="2">2 · Solde CJ</option><option value="3">3 · Créer seulement</option></select></label>
         </div>
+        <div className="saw-three">
+          <label><div className="saw-label">IOSS</div><select className="saw-select" name="cj_ioss_type" defaultValue={String(c?.config?.cj_ioss_type ?? 3)}><option value="3">3 · IOSS CJ</option><option value="2">2 · Mon IOSS</option><option value="1">1 · Sans IOSS</option></select></label>
+          <label><div className="saw-label">Numéro IOSS</div><input className="saw-input" name="cj_ioss_number" defaultValue={String(c?.config?.cj_ioss_number ?? "CJ-IOSS")} placeholder="CJ-IOSS"/></label>
+        </div>
         <div className="saw-two">
           <label><div className="saw-label">Referer API (optionnel)</div><input className="saw-input" name="cj_referer" defaultValue={String(c?.config?.cj_referer ?? "")}/></label>
           <label className="saw-check" style={{paddingTop:20}}><input type="checkbox" name="sandbox_enabled" defaultChecked={c?.sandbox_enabled ?? false}/><span>Mode sandbox CJ pour les tests de commande</span></label>
         </div>
-        <div className="saw-help">Pour l’auto-commande, utilisez payType 2 (paiement par solde CJ). Le mode 3 crée la commande sans la payer et reste réservé à un traitement manuel.</div>
+        <div className="saw-help">Pour la France avec CJPacket Euro Sensitive F, le réglage recommandé est IOSS CJ (type 3). Le paiement 2 utilise le solde CJ lorsqu'une commande automatique est activée.</div>
       </div>
     ) : null}
 
@@ -253,6 +257,11 @@ function ConnectionForm({ c }: { c?: Connection }) {
     <div className="saw-three">
       <label><div className="saw-label">Plafond achat fournisseur (€)</div><input className="saw-input" type="number" step="0.01" name="max_supplier_order_eur" defaultValue={Number(c?.config?.max_supplier_order_cents ?? 100000)/100}/></label>
       <div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="auto_order_enabled" defaultChecked={c?.auto_order_enabled}/><span>Autoriser les commandes automatiques après validation</span></label></div>
+      <div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="auto_publish_after_sync" defaultChecked={c?.config?.auto_publish_after_sync === true}/><span>Publier automatiquement après synchronisation valide</span></label></div>
+    </div>
+    <div className="saw-three">
+      <label><div className="saw-label">Livraison min. (jours)</div><input className="saw-input" type="number" min="0" max="365" name="default_delivery_min_days" defaultValue={Number(c?.config?.delivery_min_days ?? 0)}/></label>
+      <label><div className="saw-label">Livraison max. (jours)</div><input className="saw-input" type="number" min="0" max="365" name="default_delivery_max_days" defaultValue={Number(c?.config?.delivery_max_days ?? 0)}/></label>
       <div style={{paddingTop:23}}>{c?.docs_url || provider.docsUrl ? <a className="saw-help" href={c?.docs_url || provider.docsUrl || undefined} target="_blank" rel="noreferrer">Voir la documentation fournisseur ↗</a> : null}</div>
     </div>
 

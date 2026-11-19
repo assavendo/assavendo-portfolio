@@ -65,6 +65,6 @@ export default async function Dropshipping({ searchParams }: { searchParams: Pro
       variants={(variantsResult.data ?? []) as never}
       providers={(providersResult.data ?? []) as never}
     />
-    <SupplierImportForm imports={(importsResult.data ?? []) as never} />
+    <SupplierImportForm imports={(importsResult.data ?? []) as never} connections={(connectionsResult.data ?? []) as never} />
   </div>;
 }

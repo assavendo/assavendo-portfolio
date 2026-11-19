@@ -54,6 +54,11 @@ const connectionSchema = z.object({
   cj_platform: z.string().trim().max(80).optional().or(z.literal("")),
   cj_store_name: z.string().trim().max(180).optional().or(z.literal("")),
   cj_pay_type: z.coerce.number().int().min(2).max(3).optional(),
+  cj_ioss_type: z.coerce.number().int().min(1).max(3).optional(),
+  cj_ioss_number: z.string().trim().max(120).optional().or(z.literal("")),
+  auto_publish_after_sync: z.string().optional(),
+  default_delivery_min_days: z.coerce.number().int().min(0).max(365).optional(),
+  default_delivery_max_days: z.coerce.number().int().min(0).max(365).optional(),
   cj_referer: z.string().trim().max(500).optional().or(z.literal("")),
 });
 
@@ -142,6 +147,8 @@ export async function saveSupplierConnection(form: FormData) {
     cj_platform: parsed.data.cj_platform || String(existingCjConfig.cj_platform ?? "Api"),
     cj_store_name: parsed.data.cj_store_name || existingCjConfig.cj_store_name || null,
     cj_pay_type: parsed.data.cj_pay_type ?? Number(existingCjConfig.cj_pay_type ?? 2),
+    cj_ioss_type: parsed.data.cj_ioss_type ?? Number(existingCjConfig.cj_ioss_type ?? 3),
+    cj_ioss_number: parsed.data.cj_ioss_number || existingCjConfig.cj_ioss_number || (Number(existingCjConfig.cj_ioss_type ?? 3) === 3 ? "CJ-IOSS" : null),
     cj_referer: parsed.data.cj_referer || existingCjConfig.cj_referer || null,
   } : {};
   const row = {
@@ -187,6 +194,11 @@ export async function saveSupplierConnection(form: FormData) {
       order_response_tracking_number_path: parsed.data.order_tracking_number_path || null,
       order_response_tracking_url_path: parsed.data.order_tracking_url_path || null,
       ...cjConfig,
+      auto_publish_after_sync: parsed.data.auto_publish_after_sync === "on"
+        ? true
+        : (isCj ? Boolean(existingCjConfig.auto_publish_after_sync) : false),
+      delivery_min_days: parsed.data.default_delivery_min_days ?? (isCj ? Number(existingCjConfig.delivery_min_days ?? 0) : 0),
+      delivery_max_days: parsed.data.default_delivery_max_days ?? (isCj ? Number(existingCjConfig.delivery_max_days ?? 0) : 0),
     },
     created_by: user.id,
   };
@@ -277,7 +289,7 @@ export async function syncSupplierNow(form: FormData) {
     redirect("/admin/dropshipping?erreur=" + encodeURIComponent("Synchronisation CJ échouée : " + message));
   }
 
-  return done(`Synchronisation terminée : ${result.applied} référence(s) appliquée(s), ${result.changed} changement(s).`);
+  return done("Synchronisation terminée : " + result.applied + " référence(s) appliquée(s), " + result.changed + " changement(s)." + (result.published ? " " + result.published + " produit(s) publié(s) automatiquement." : ""));
 }
 
 export async function saveSupplierMapping(form: FormData) {
