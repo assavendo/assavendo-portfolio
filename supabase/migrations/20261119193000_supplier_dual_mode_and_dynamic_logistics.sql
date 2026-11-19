@@ -21,6 +21,31 @@ alter table public.supplier_connections
 alter table public.product_variants
   add column if not exists weight_g integer;
 
+update public.product_supplier_mappings
+set supplier_weight_g = case external_sku
+  when 'CJJT110969701AZ' then 53
+  when 'CJJT110969702BY' then 53
+  when 'CJJT110969703CX' then 148
+  when 'CJJT110969704DW' then 94
+  when 'CJJT110969705EV' then 141
+  when 'CJJT110969706FU' then 141
+  when 'CJJT110969707GT' then 329
+  when 'CJJT110969708HS' then 329
+  when 'CJJT110969709IR' then 235
+  when 'CJJT110969710JQ' then 235
+  when 'CJJT110969711KP' then 188
+  when 'CJJT110969712LO' then 282
+  when 'CJJT110969713MN' then 376
+  when 'CJJT110969714NM' then 188
+  when 'CJJT110969715OL' then 282
+  when 'CJJT110969716PK' then 376
+  when 'CJJT110969717QJ' then 492
+  when 'CJJT110969718RI' then 668
+  else supplier_weight_g
+end
+where supplier_connection_id = 'a4dece0a-ded4-46e7-87d1-435411a21078'::uuid
+  and external_sku like 'CJJT1109697%';
+
 update public.product_variants
 set weight_g = case sku
   when 'AV-LMP-01' then 53
@@ -53,6 +78,16 @@ alter table public.product_variants
 alter table public.product_variants
   add constraint product_variants_weight_g_check
   check (weight_g is null or weight_g > 0);
+
+alter table public.product_supplier_mappings
+  add column if not exists supplier_weight_g integer;
+
+alter table public.product_supplier_mappings
+  drop constraint if exists product_supplier_mappings_supplier_weight_g_check;
+
+alter table public.product_supplier_mappings
+  add constraint product_supplier_mappings_supplier_weight_g_check
+  check (supplier_weight_g is null or supplier_weight_g > 0);
 
 alter table public.product_supplier_mappings
   add column if not exists logistics_properties text[];
@@ -109,6 +144,9 @@ alter table public.supplier_orders
 
 create index if not exists supplier_connections_fulfillment_mode_idx
   on public.supplier_connections(fulfillment_mode, enabled);
+
+create index if not exists supplier_mappings_supplier_weight_idx
+  on public.product_supplier_mappings(supplier_weight_g);
 
 create index if not exists orders_shipping_method_idx
   on public.orders(shipping_method_code);
