@@ -9,6 +9,7 @@ import {
   toggleSupplierConnection,
   deleteSupplierMapping,
   retrySupplierOrder,
+  recordManualSupplierOrder,
 } from "@/app/actions/supplier-automation";
 import { SUPPLIER_PROVIDERS, getSupplierProvider } from "@/lib/dropship/providers";
 
@@ -18,6 +19,7 @@ type Connection = {
   base_url: string;
   enabled: boolean;
   auto_order_enabled: boolean;
+  fulfillment_mode: "manual" | "auto";
   webhook_enabled: boolean;
   sync_interval_seconds: number;
   status: string;
@@ -70,6 +72,7 @@ type Mapping = {
 type SupplierOrder = {
   id: string;
   status: string;
+  fulfillment_mode: "manual" | "auto" | null;
   client_reference: string;
   external_order_id: string | null;
   supplier_total_cents: number;
@@ -256,8 +259,13 @@ function ConnectionForm({ c }: { c?: Connection }) {
 
     <div className="saw-three">
       <label><div className="saw-label">Plafond achat fournisseur (€)</div><input className="saw-input" type="number" step="0.01" name="max_supplier_order_eur" defaultValue={Number(c?.config?.max_supplier_order_cents ?? 100000)/100}/></label>
-      <div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="auto_order_enabled" defaultChecked={c?.auto_order_enabled}/><span>Autoriser les commandes automatiques après validation</span></label></div>
+      <label><div className="saw-label">Mode de traitement des commandes</div><select className="saw-select" name="fulfillment_mode" defaultValue={c?.fulfillment_mode ?? (c?.auto_order_enabled ? "auto" : "manual")}><option value="manual">Manuel · validation humaine</option><option value="auto">Automatique · envoi fournisseur</option></select></label>
+      <div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="auto_order_enabled" defaultChecked={c?.auto_order_enabled} /><span>Activer le moteur automatique du mode sélectionné</span></label></div>
+    </div>
+    <div className="saw-note">Mode manuel : les ventes sont acceptées, aucune commande fournisseur n’est envoyée automatiquement; l’administrateur saisit ensuite la référence fournisseur et le suivi. Mode automatique : l’envoi n’est déclenché qu’après contrôle du stock, du transport, du solde et des paramètres de paiement.</div>
+    <div className="saw-three">
       <div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="auto_publish_after_sync" defaultChecked={c?.config?.auto_publish_after_sync === true}/><span>Publier automatiquement après synchronisation valide</span></label></div>
+      <div style={{paddingTop:23}}><label className="saw-check"><input type="checkbox" name="webhook_enabled" defaultChecked={Boolean(c?.webhook_enabled)}/><span>Activer les webhooks signés</span></label></div>
     </div>
     <div className="saw-three">
       <label><div className="saw-label">Livraison min. (jours)</div><input className="saw-input" type="number" min="0" max="365" name="default_delivery_min_days" defaultValue={Number(c?.config?.delivery_min_days ?? 0)}/></label>
@@ -310,7 +318,25 @@ export function SupplierAutomationPanel({ connections, mappings, orders, product
           </div>
         </div>
         <div className="saw-section"><div className="saw-title"><h3>Commandes fournisseur</h3><span className="saw-pill">{orders.length}</span></div>
-          <div className="saw-list">{orders.length ? orders.map((o)=><article className="saw-card" key={o.id}><div className="saw-card-top"><div><h4>{o.orders?.order_number ?? o.client_reference} · {o.supplier_connections?.name ?? "Fournisseur"}</h4><div className="saw-meta">Coût {eur(o.supplier_total_cents)} · {date(o.created_at)}{o.external_order_id ? " · ID externe "+o.external_order_id : ""}</div></div><span className={"saw-status "+statusClass(o.status)}>{o.status}</span></div>{o.last_error ? <div className="saw-meta" style={{color:"#ffb0b0"}}>{o.last_error}</div> : null}{o.tracking_number ? <div className="saw-meta">Suivi : {o.tracking_number}</div> : null}<div className="saw-actions">{["failed","needs_review"].includes(o.status) ? <form action={retrySupplierOrder}><input type="hidden" name="id" value={o.id}/><button className="saw-btn">Réessayer</button></form>:null}</div></article>) : <div className="saw-empty">Aucune commande fournisseur.</div>}</div>
+          <div className="saw-list">{orders.length ? orders.map((o)=><article className="saw-card" key={o.id}>
+  <div className="saw-card-top"><div><h4>{o.orders?.order_number ?? o.client_reference} · {o.supplier_connections?.name ?? "Fournisseur"}</h4>
+  <div className="saw-meta">{o.fulfillment_mode === "manual" ? "Traitement manuel" : "Traitement automatique"} · coût {eur(o.supplier_total_cents)} · {date(o.created_at)}{o.external_order_id ? " · ID externe "+o.external_order_id : ""}</div></div>
+  <span className={"saw-status "+statusClass(o.status)}>{o.status}</span></div>
+  {o.last_error ? <div className="saw-meta" style={{color:"#ffb0b0"}}>{o.last_error}</div> : null}
+  {o.tracking_number ? <div className="saw-meta">Suivi : {o.tracking_number}{o.tracking_url ? " · "+o.tracking_url : ""}</div> : null}
+  {o.fulfillment_mode === "manual" ? <form action={recordManualSupplierOrder} className="saw-form" style={{marginTop:9}}>
+    <input type="hidden" name="id" value={o.id}/>
+    <div className="saw-three">
+      <label><div className="saw-label">Statut</div><select className="saw-select" name="status" defaultValue={o.status}><option value="manual_pending">À traiter</option><option value="submitted">Créée fournisseur</option><option value="confirmed">Confirmée</option><option value="processing">En préparation</option><option value="shipped">Expédiée</option><option value="delivered">Livrée</option><option value="needs_review">À vérifier</option><option value="canceled">Annulée</option></select></label>
+      <label><div className="saw-label">Référence fournisseur</div><input className="saw-input" name="external_order_id" defaultValue={o.external_order_id ?? ""}/></label>
+      <label><div className="saw-label">Transport/logistique</div><input className="saw-input" name="logistics_name" defaultValue="" /></label>
+    </div>
+    <div className="saw-two"><label><div className="saw-label">Numéro de suivi</div><input className="saw-input" name="tracking_number" defaultValue={o.tracking_number ?? ""}/></label><label><div className="saw-label">URL de suivi</div><input className="saw-input" name="tracking_url" defaultValue={o.tracking_url ?? ""}/></label></div>
+    <input className="saw-input" name="manual_note" placeholder="Note interne (facultatif)"/>
+    <button className="saw-btn saw-btn-primary" type="submit">Enregistrer le traitement manuel</button>
+  </form> : null}
+  <div className="saw-actions">{o.fulfillment_mode === "auto" && ["failed","needs_review"].includes(o.status) ? <form action={retrySupplierOrder}><input type="hidden" name="id" value={o.id}/><button className="saw-btn">Réessayer l’automatique</button></form>:null}</div>
+</article>) : <div className="saw-empty">Aucune commande fournisseur.</div>}</div>
         </div>
       </div>
     </div>
