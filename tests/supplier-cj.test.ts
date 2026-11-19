@@ -140,6 +140,11 @@ test("CJ order creation reconciles an ambiguous failure by orderNumber", async (
           created_at: new Date().toISOString(),
         },
         customer: { email: "customer@example.com" },
+        shipping_quote: {
+          providerOption: {
+            logisticsName: "test-logistics",
+          },
+        },
         shipping: {
           name: "Customer Test",
           line1: "1 Test Street",
