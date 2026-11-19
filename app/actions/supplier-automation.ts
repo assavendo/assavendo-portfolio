@@ -194,9 +194,7 @@ export async function saveSupplierConnection(form: FormData) {
       order_response_tracking_number_path: parsed.data.order_tracking_number_path || null,
       order_response_tracking_url_path: parsed.data.order_tracking_url_path || null,
       ...cjConfig,
-      auto_publish_after_sync: parsed.data.auto_publish_after_sync === "on"
-        ? true
-        : (isCj ? Boolean(existingCjConfig.auto_publish_after_sync) : false),
+      auto_publish_after_sync: parsed.data.auto_publish_after_sync === "on",
       delivery_min_days: parsed.data.default_delivery_min_days ?? (isCj ? Number(existingCjConfig.delivery_min_days ?? 0) : 0),
       delivery_max_days: parsed.data.default_delivery_max_days ?? (isCj ? Number(existingCjConfig.delivery_max_days ?? 0) : 0),
     },

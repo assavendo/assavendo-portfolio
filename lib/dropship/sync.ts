@@ -64,7 +64,7 @@ async function refreshSyncedProducts(
 
   for (const productId of ids) {
     const { data: product } = await db.from("products")
-.select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty")
+.select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty,category_id")
       .eq("id", productId)
       .maybeSingle();
     if (!product || product.kind !== "physical") continue;
@@ -95,7 +95,7 @@ async function refreshSyncedProducts(
     }
     await db.from("products").update(update).eq("id", productId);
 
-    if (!autoPublish || product.status !== "draft" || !hasStock) continue;
+    if (!autoPublish || product.status !== "draft" || !hasStock || !product.category_id) continue;
     const images = Array.isArray(product.images) ? product.images as Array<{ url?: string; alt?: string }> : [];
     const hasPublishableImage = images.some((image) => typeof image?.url === "string" && typeof image?.alt === "string" && image.alt.trim() && isAllowedImageUrl(image.url));
     const minDelivery = Number(update.delivery_min_days ?? product.delivery_min_days ?? 0);
