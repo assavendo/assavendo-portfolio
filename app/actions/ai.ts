@@ -17,6 +17,105 @@ import { isAllowedImageUrl } from "@/lib/images";
 const back = (msg: string, kind: "ok" | "erreur" = "ok"): never => { revalidatePath("/admin/ia"); redirect(`/admin/ia?${kind}=${encodeURIComponent(msg)}`); };
 const id = (f: FormData) => z.string().uuid().parse(f.get("id"));
 const aiConversationAgent = z.enum(["recherche", "catalogue", "support"]);
+
+async function createSupplierMappingsForDraft(
+  db: ReturnType<typeof supabaseAdmin>,
+  productId: string,
+  supplierConnectionId: string | null,
+  supplierVariants: Array<{ sku?: string; label?: string; options?: Record<string, string> }>,
+  fallbackProductSku?: string | null,
+): Promise<{ created: number; error?: string }> {
+  if (!supplierConnectionId) return { created: 0 };
+
+  const { data: markets, error: marketError } = await db.from("markets")
+    .select("code")
+    .eq("sell_enabled", true)
+    .eq("ship_enabled", true)
+    .in("tax_status", ["approved", "legacy"])
+    .in("shipping_status", ["approved", "legacy"])
+    .in("compliance_status", ["approved", "legacy"])
+    .in("pricing_status", ["approved", "legacy"])
+    .in("payment_status", ["approved", "legacy"]);
+  if (marketError) return { created: 0, error: "Impossible de lire les marchés autorisés." };
+  const countries = (markets ?? []).map((m) => String(m.code).toUpperCase()).filter(Boolean);
+  if (!countries.length) return { created: 0, error: "Aucun marché autorisé n'est actuellement disponible; aucun routage fournisseur n'a été créé." };
+
+  const cleanVariants = supplierVariants.map((v) => ({
+    sku: String(v.sku ?? "").trim(),
+    label: String(v.label ?? "").trim().toLowerCase(),
+    options: Object.fromEntries(Object.entries(v.options ?? {}).map(([k,val]) => [k.trim().toLowerCase(), String(val).trim().toLowerCase()])),
+  })).filter((v) => v.sku);
+
+  const unique = new Map<string, typeof cleanVariants[number]>();
+  for (const item of cleanVariants) unique.set(item.sku.toUpperCase(), item);
+  if (!unique.size && fallbackProductSku?.trim()) {
+    unique.set(fallbackProductSku.trim().toUpperCase(), { sku: fallbackProductSku.trim(), label: "", options: {} });
+  }
+  if (!unique.size) return { created: 0, error: "Aucune référence fournisseur exploitable n'a été fournie par la source; aucun mapping silencieux n'est autorisé." };
+
+  const { data: productVariants, error: variantsError } = await db.from("product_variants")
+    .select("id,sort,label,options")
+    .eq("product_id", productId)
+    .order("sort");
+  if (variantsError) return { created: 0, error: "Impossible de lire les variantes internes après création." };
+
+  const availableInternal = (productVariants ?? []).map((v) => ({
+    id: String(v.id), sort: Number(v.sort ?? 0), label: String(v.label ?? "").trim().toLowerCase(),
+    options: Object.fromEntries(Object.entries(v.options && typeof v.options === "object" ? v.options : {}).map(([k,val]) => [k.trim().toLowerCase(), String(val).trim().toLowerCase()])),
+  }));
+  const resolveVariantId = (source: typeof cleanVariants[number], index: number): string | null => {
+    if (!availableInternal.length) return null;
+    const exact = availableInternal.find((v) => source.label && v.label === source.label && JSON.stringify(v.options) === JSON.stringify(source.options));
+    if (exact) return exact.id;
+    const byLabel = availableInternal.find((v) => source.label && v.label === source.label);
+    if (byLabel) return byLabel.id;
+    if (availableInternal.length === cleanVariants.length && availableInternal[index]) return availableInternal[index].id;
+    return null;
+  };
+
+  let created = 0;
+  for (const [index, source] of [...unique.values()].entries()) {
+    const supplierSku = source.sku;
+    const variantId = resolveVariantId(source, index);
+    const { data: existing, error: existingError } = await db.from("product_supplier_mappings")
+      .select("id,product_id,variant_id")
+      .eq("supplier_connection_id", supplierConnectionId)
+      .eq("external_sku", supplierSku)
+      .maybeSingle();
+    if (existingError) return { created, error: "Impossible de vérifier les mappings fournisseur existants." };
+    if (existing && (String(existing.product_id) !== productId || String(existing.variant_id ?? "") !== String(variantId ?? ""))) {
+      return { created, error: "Le SKU fournisseur " + supplierSku + " est déjà rattaché à un autre produit ou une autre variante." };
+    }
+
+    const mappingRow = {
+      supplier_connection_id: supplierConnectionId,
+      product_id: productId,
+      variant_id: variantId,
+      external_sku: supplierSku,
+      enabled: true,
+      auto_reprice: true,
+      reprice_mode: "cost_plus_margin",
+      margin_bps: 3000,
+      markup_cents: 0,
+      min_retail_cents: 50,
+      max_retail_cents: null,
+      priority: 100,
+      destination_countries: countries,
+      logistics_properties: ["COMMON"],
+    };
+
+    if (existing?.id) {
+      const { error } = await db.from("product_supplier_mappings").update(mappingRow).eq("id", existing.id);
+      if (error) return { created, error: "Le mapping fournisseur existant n'a pas pu être mis à jour." };
+    } else {
+      const { error } = await db.from("product_supplier_mappings").insert(mappingRow);
+      if (error) return { created, error: "Le mapping fournisseur n'a pas pu être créé." };
+      created += 1;
+    }
+  }
+  return { created };
+}
+
 const optionalUuid = (value: FormDataEntryValue | null) => {
   if (!value) return null;
   const parsed = z.string().uuid().safeParse(String(value));
@@ -405,6 +504,13 @@ export async function decideTask(form: FormData) {
           const { error: reconcileError } = await db.from("dropship_imports").update({ status: "approved", decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at }).eq("id", importId);
           if (reconcileError) return back("Le brouillon existe, mais le lien de reprise n'a pas pu être réparé.", "erreur");
         }
+        const existingExtracted = (source.extracted && typeof source.extracted === "object" ? source.extracted : {}) as Record<string, unknown>;
+        const existingVariants = (Array.isArray(existingExtracted.variants) ? existingExtracted.variants : []).filter((variant): variant is { sku?: string; label?: string; options?: Record<string, string> } => Boolean(variant && typeof variant === "object"));
+        const existingConnectionId = typeof (payload.supplier_connection_id ?? existingExtracted.supplier_connection_id) === "string"
+          ? String(payload.supplier_connection_id ?? existingExtracted.supplier_connection_id)
+          : null;
+        const existingMappingResult = await createSupplierMappingsForDraft(db, String(source.product_id), existingConnectionId && /^[0-9a-f-]{36}$/i.test(existingConnectionId) ? existingConnectionId : null, existingVariants);
+        if (existingMappingResult.error) return back("Le brouillon existe mais son routage fournisseur n'est pas complet : " + existingMappingResult.error, "erreur");
         await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: source.product_id, import_id: importId } }).eq("id", tid).in("status", ["pending", "approved"]);
         return back("Le brouillon existant a été relié et la tâche finalisée; aucune copie n'a été créée.");
       }
@@ -422,6 +528,9 @@ export async function decideTask(form: FormData) {
       const sourceImages = (Array.isArray(source.images) ? source.images : []) as { url?: string; alt?: string; credit?: string; kind?: string }[];
       const premium = sourceImages.find((image) => image.kind === "premium" && image.url && isAllowedImageUrl(image.url));
       const extracted = (source.extracted && typeof source.extracted === "object" ? source.extracted : {}) as Record<string, unknown>;
+      const supplierConnectionId = typeof (payload.supplier_connection_id ?? extracted.supplier_connection_id) === "string"
+        ? String(payload.supplier_connection_id ?? extracted.supplier_connection_id)
+        : null;
       const variants = (Array.isArray(extracted.variants) ? extracted.variants : []).filter((variant): variant is { label?: string; sku?: string; options?: Record<string, string>; supplier_price?: number | null; availability?: string } => Boolean(variant && typeof variant === "object")) .slice(0, 40).map((variant) => ({
         label: typeof variant.label === "string" ? variant.label : "Variante",
         sku: typeof variant.sku === "string" ? variant.sku : "",
@@ -431,11 +540,19 @@ export async function decideTask(form: FormData) {
       }));
       const createdId = await createDraftProduct({ ...p.value, kind: "physical", price_eur: 0 }, { supplier: true, productId: pid, variants, images: premium ? [{ url: premium.url!, alt: premium.alt || `Photo du produit ${p.value.title}`, credit: premium.credit }] : [] });
       if (!createdId) return back("Produit non créé; l'identifiant réservé est conservé pour reprendre sans doublon.", "erreur");
+      const mappingResult = await createSupplierMappingsForDraft(
+        db,
+        createdId,
+        supplierConnectionId && /^[0-9a-f-]{36}$/i.test(supplierConnectionId) ? supplierConnectionId : null,
+        variants.map((variant) => ({ sku: variant.sku, label: variant.label, options: variant.options })),
+        typeof extracted.sku === "string" ? extracted.sku : null,
+      );
+      if (mappingResult.error) return back("Le brouillon a été créé mais le routage fournisseur n'est pas complet : " + mappingResult.error, "erreur");
       const { data: linked, error: linkError } = await db.from("dropship_imports").update({ status: "approved", product_id: createdId, decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at, error: null }).eq("id", importId).eq("status", "needs_review").select("id").maybeSingle();
       if (linkError || !linked) return back("Le brouillon est conservé avec un identifiant réservé; relancez l'approbation pour terminer le lien.", "erreur");
       await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: createdId, import_id: importId } }).eq("id", tid).eq("status", "approved");
       revalidatePath("/admin/dropshipping"); revalidatePath("/admin/produits"); revalidatePath("/boutique"); revalidatePath("/");
-      return back("Produit physique créé en brouillon à 0 €; définissez prix, stock et livraison avant publication.");
+      return back("Produit physique créé en brouillon; mapping " + (mappingResult.created ? "créé" : "aucun fournisseur sélectionné") + " et marge cible 30 %. Lancez une synchronisation pour calculer le prix client.");
     }
     const pid = await createDraftProduct(p.value); if (!pid) return back("Produit non créé.", "erreur");
     await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: pid } }).eq("id", tid);

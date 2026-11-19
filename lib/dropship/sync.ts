@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { fetchInventory, type SupplierInventoryRecord } from "./connector";
 import { getRatesToEur, toEurCents } from "./fx";
+import { isAllowedImageUrl } from "@/lib/images";
 
 type Mapping = {
   id: string;
@@ -18,6 +19,8 @@ type Mapping = {
   max_retail_cents: number | null;
   supplier_cost_cents: number | null;
   supplier_currency: string | null;
+  supplier_weight_g: number | null;
+  supplier_volume_cm3: number | null;
   supplier_qty: number;
   available: boolean;
   source_cost_cents: number | null;
@@ -25,6 +28,24 @@ type Mapping = {
   fx_rate_to_eur: number | null;
   external_product_id: string | null;
   external_variant_id: string | null;
+};
+
+async function assertDb<T>(operation: PromiseLike<{ data?: T; error: { message?: string } | null }>, label: string): Promise<T | undefined> {
+  const result = await operation;
+  if (result.error) throw new Error(label + ": " + (result.error.message ?? "erreur Supabase"));
+  return result.data;
+}
+
+type SyncProductRow = {
+  kind: string;
+  status: string;
+  price_cents: number | null;
+  shipping_cents: number | null;
+  delivery_min_days: number | null;
+  delivery_max_days: number | null;
+  images: unknown;
+  stock_qty: number | null;
+  category_id: string | null;
 };
 
 function retailFromCost(mapping: Mapping, costCents: number): number | null {
@@ -46,6 +67,67 @@ function retailFromCost(mapping: Mapping, costCents: number): number | null {
 function percentChange(oldValue: number | null, nextValue: number | null): number | null {
   if (oldValue === null || nextValue === null || oldValue === 0) return null;
   return ((nextValue - oldValue) / oldValue) * 100;
+}
+
+async function refreshSyncedProducts(
+  db: ReturnType<typeof supabaseAdmin>,
+  connection: { config?: Record<string, unknown> | null },
+  productIds: string[],
+): Promise<number> {
+  const ids = [...new Set(productIds.filter(Boolean))];
+  if (!ids.length) return 0;
+  const config = connection.config ?? {};
+  const deliveryMin = Number(config.delivery_min_days ?? 0);
+  const deliveryMax = Number(config.delivery_max_days ?? 0);
+  const autoPublish = config.auto_publish_after_sync === true;
+  let published = 0;
+
+  for (const productId of ids) {
+    const productResult = await db.from("products").select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty,category_id").eq("id", productId).maybeSingle();
+    if (productResult.error) throw new Error("Lecture produit: " + productResult.error.message);
+    const product = productResult.data as SyncProductRow | null;
+    if (!product || product.kind !== "physical") continue;
+
+    const variants = await assertDb(db.from("product_variants").select("price_cents,stock_qty,active").eq("product_id", productId).eq("active", true).order("sort"), "Lecture variantes") ?? [];
+
+    const pricedVariants = (variants ?? []).filter((v) => Number(v.price_cents ?? 0) > 0);
+    const prices = pricedVariants.map((v) => Number(v.price_cents));
+    const stock = (variants ?? []).length
+      ? (variants ?? []).reduce((sum, v) => sum + Math.max(0, Number(v.stock_qty ?? 0)), 0)
+      : Math.max(0, Number(product.stock_qty ?? 0));
+    const minPrice = prices.length ? Math.min(...prices) : Number(product.price_cents ?? 0);
+    const hasStock = (variants ?? []).length
+      ? (variants ?? []).some((v) => Number(v.stock_qty ?? 0) > 0 && Number(v.price_cents ?? 0) > 0)
+      : Number(product.stock_qty ?? 0) > 0 && Number(product.price_cents ?? 0) > 0;
+
+    const update: Record<string, unknown> = {
+      price_cents: Math.max(0, Math.round(minPrice)),
+      stock_qty: stock,
+    };
+    if ((!product.delivery_min_days || !product.delivery_max_days) && deliveryMin > 0 && deliveryMax >= deliveryMin) {
+      update.delivery_min_days = deliveryMin;
+      update.delivery_max_days = deliveryMax;
+    }
+    await assertDb(db.from("products").update(update).eq("id", productId), "Mise à jour produit");
+
+    if (!autoPublish || product.status !== "draft" || !hasStock || !product.category_id) continue;
+    const images = Array.isArray(product.images) ? product.images as Array<{ url?: string; alt?: string }> : [];
+    const hasPublishableImage = images.some((image) => typeof image?.url === "string" && typeof image?.alt === "string" && image.alt.trim() && isAllowedImageUrl(image.url));
+    const minDelivery = Number(update.delivery_min_days ?? product.delivery_min_days ?? 0);
+    const maxDelivery = Number(update.delivery_max_days ?? product.delivery_max_days ?? 0);
+    if (minPrice < 50 || !hasPublishableImage || minDelivery <= 0 || maxDelivery < minDelivery) continue;
+
+    const { error: publishError } = await db.from("products").update({
+      status: "published",
+      published_at: new Date().toISOString(),
+      price_cents: Math.round(minPrice),
+      stock_qty: stock,
+      ...(update.delivery_min_days ? { delivery_min_days: update.delivery_min_days, delivery_max_days: update.delivery_max_days } : {}),
+    }).eq("id", productId).eq("status", "draft");
+    if (publishError) throw new Error("Publication produit: " + publishError.message);
+    published += 1;
+  }
+  return published;
 }
 
 
@@ -107,18 +189,18 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     const { data: variant } = await db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle();
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     if (retail !== null && retail !== variant?.price_cents) {
-      await db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id);
-      await db.from("supplier_price_history").insert({
+      await assertDb(db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id), "Mise à jour variante");
+      await assertDb(db.from("supplier_price_history").insert({
         mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail, change_percent: percentChange(oldCost, cost), source: "sync",
-      });
+      }), "Historique prix");
     } else {
-      await db.from("product_variants").update({ stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id);
+      await assertDb(db.from("product_variants").update({ stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id), "Mise à jour stock variante");
       if (priceChanged) {
-        await db.from("supplier_price_history").insert({
+        await assertDb(db.from("supplier_price_history").insert({
           mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
           retail_price_cents: variant?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
-        });
+        }), "Historique prix");
       }
     }
   } else {
@@ -126,16 +208,16 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     const productUpdate: Record<string, unknown> = { stock_qty: qty };
     if (retail !== null) productUpdate.price_cents = retail;
-    await db.from("products").update(productUpdate).eq("id", mapping.product_id);
+    await assertDb(db.from("products").update(productUpdate).eq("id", mapping.product_id), "Mise à jour produit");
     if (priceChanged) {
-      await db.from("supplier_price_history").insert({
+      await assertDb(db.from("supplier_price_history").insert({
         mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail ?? product?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
-      });
+      }), "Historique prix");
     }
   }
 
-  await db.from("supplier_inventory_snapshots").insert({
+  await assertDb(db.from("supplier_inventory_snapshots").insert({
     supplier_connection_id: connectionId,
     mapping_id: mapping.id,
     external_sku: record.external_sku,
@@ -147,12 +229,14 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     fx_rate_to_eur: fxRate,
     available,
     raw_payload: record.raw && typeof record.raw === "object" ? record.raw : {},
-  });
+  }), "Snapshot inventaire");
 
   const now = new Date().toISOString();
-  await db.from("product_supplier_mappings").update({
+  await assertDb(db.from("product_supplier_mappings").update({
     supplier_cost_cents: cost,
     supplier_currency: "eur",
+    supplier_weight_g: record.supplier_weight_g ?? mapping.supplier_weight_g ?? null,
+    supplier_volume_cm3: record.supplier_volume_cm3 ?? mapping.supplier_volume_cm3 ?? null,
     source_cost_cents: sourceCost,
     source_currency: sourceCurrency,
     fx_rate_to_eur: fxRate,
@@ -164,7 +248,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     last_price_change_at: priceChanged ? now : undefined,
     last_stock_change_at: stockChanged ? now : undefined,
     last_error: null,
-  }).eq("id", mapping.id);
+  }).eq("id", mapping.id), "Mise à jour mapping");
 
   return { changed, priceChanged, stockChanged };
 }
@@ -173,7 +257,7 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
   const lockKey = `supplier-sync:${connectionId}`;
   const lockedBy = await acquireSupplierJobLock(lockKey);
   if (!lockedBy) {
-    return { connectionId, fetched: 0, applied: 0, changed: 0, priceChanges: 0, stockChanges: 0, skipped: true };
+    return { connectionId, fetched: 0, applied: 0, changed: 0, priceChanges: 0, stockChanges: 0, published: 0, skipped: true };
   }
 
   const db = supabaseAdmin();
@@ -185,7 +269,7 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
 
   try {
     const { data: mappings, error: mappingError } = await db.from("product_supplier_mappings")
-      .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,auto_reprice,reprice_mode,margin_bps,markup_cents,min_retail_cents,max_retail_cents,supplier_cost_cents,supplier_currency,supplier_qty,available,source_cost_cents,source_currency,fx_rate_to_eur,external_product_id,external_variant_id")
+      .select("id,supplier_connection_id,product_id,variant_id,external_sku,enabled,auto_reprice,reprice_mode,margin_bps,markup_cents,min_retail_cents,max_retail_cents,supplier_cost_cents,supplier_currency,supplier_qty,available,source_cost_cents,source_currency,fx_rate_to_eur,external_product_id,external_variant_id,supplier_weight_g,supplier_volume_cm3")
       .eq("supplier_connection_id", connectionId)
       .eq("enabled", true);
     if (mappingError) throw mappingError;
@@ -230,6 +314,7 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
     let changed = 0;
     let priceChanges = 0;
     let stockChanges = 0;
+    const syncedProductIds = (mappings ?? []).map((mapping) => mapping.product_id);
 
     for (const mapping of (mappings ?? []) as Mapping[]) {
       const record = bySku.get(mapping.external_sku);
@@ -241,15 +326,16 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
       if (result.stockChanged) stockChanges += 1;
     }
 
+    const published = await refreshSyncedProducts(db, connection, syncedProductIds);
     const now = new Date().toISOString();
     await db.from("supplier_connections").update({
       status: "healthy", last_sync_at: now, last_success_at: now, last_error: null,
     }).eq("id", connectionId);
     await db.from("supplier_sync_runs").update({
       status: "success", finished_at: now, fetched_count: records.length, applied_count: applied,
-      changed_count: changed, error_count: 0, metadata: { price_changes: priceChanges, stock_changes: stockChanges, provider: connection.name },
+      changed_count: changed, error_count: 0, metadata: { price_changes: priceChanges, stock_changes: stockChanges, published_products: published, provider: connection.name },
     }).eq("id", run.id);
-    return { connectionId, fetched: records.length, applied, changed, priceChanges, stockChanges, skipped: false };
+    return { connectionId, fetched: records.length, applied, changed, priceChanges, stockChanges, published, skipped: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Supplier synchronization failed.";
     const rateLimited = /CJ HTTP 429|1600200|QPS limit/i.test(message);
