@@ -48,6 +48,7 @@ const connectionSchema = z.object({
   webhook_enabled: z.string().optional(),
   max_supplier_order_eur: z.coerce.number().min(0.5).max(100000),
   sandbox_enabled: z.string().optional(),
+  fulfillment_mode: z.enum(["manual","auto"]).default("manual"),
   cj_logistic_name: z.string().trim().max(180).optional().or(z.literal("")),
   cj_from_country_code: z.string().trim().length(2).optional().or(z.literal("")),
   cj_shop_logistics_type: z.coerce.number().int().min(1).max(3).optional(),
@@ -161,7 +162,8 @@ export async function saveSupplierConnection(form: FormData) {
     credentials_ciphertext: credentialBundle ? encryptSupplierSecret(JSON.stringify(credentialBundle)) : undefined,
     base_url: parsed.data.base_url ? parsed.data.base_url.replace(/\/+$/, "") : null,
     enabled: Boolean(parsed.data.id) ? undefined : false,
-    auto_order_enabled: (provider.integrationMode === "generic_rest" || isCj) ? parsed.data.auto_order_enabled === "on" : false,
+    fulfillment_mode: (provider.integrationMode === "generic_rest" || isCj) ? parsed.data.fulfillment_mode : "manual",
+    auto_order_enabled: (provider.integrationMode === "generic_rest" || isCj) ? (parsed.data.fulfillment_mode === "auto" && parsed.data.auto_order_enabled === "on") : false,
     webhook_enabled: parsed.data.webhook_enabled === "on",
     sandbox_enabled: isCj && parsed.data.sandbox_enabled === "on",
     sync_interval_seconds: parsed.data.sync_interval_seconds,
@@ -213,8 +215,8 @@ export async function saveSupplierConnection(form: FormData) {
   if (isCj && parsed.data.webhook_enabled === "on" && !cjCredentials?.openId) {
     throw new Error("Un OpenId CJ est requis pour activer les webhooks signés.");
   }
-  if (isCj && !cjConfig.cj_logistic_name && parsed.data.auto_order_enabled === "on") throw new Error("Configurez le transporteur CJ avant d'activer les commandes automatiques.");
-  if (isCj && parsed.data.auto_order_enabled === "on" && Number(cjConfig.cj_pay_type) !== 2) throw new Error("Les commandes CJ automatiques exigent le paiement par solde CJ (payType=2).");
+  if (isCj && parsed.data.fulfillment_mode === "auto" && !cjConfig.cj_logistic_name) throw new Error("Configurez le transporteur CJ avant d'activer les commandes automatiques.");
+  if (isCj && parsed.data.fulfillment_mode === "auto" && Number(cjConfig.cj_pay_type) !== 2) throw new Error("Les commandes CJ automatiques exigent le paiement par solde CJ (payType=2).");
   const { data, error } = await db.from("supplier_connections").insert({ ...row, enabled: false, status: "disabled" }).select("id").single();
   if (error || !data) throw new Error("Connexion fournisseur impossible : " + (error?.message ?? "inconnue"));
   return done("Connexion fournisseur créée. Testez-la avant d'activer la synchronisation.");
