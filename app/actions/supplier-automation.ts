@@ -307,6 +307,21 @@ export async function saveSupplierMapping(form: FormData) {
     if (!variant || variant.product_id !== d.product_id) throw new Error("La variante choisie n'appartient pas au produit.");
   }
 
+  let destinationCountries = (d.destination_countries || "").split(",").map((v) => v.trim().toUpperCase()).filter(Boolean).slice(0, 100);
+  if (!destinationCountries.length) {
+    const { data: markets, error: marketError } = await db.from("markets")
+      .select("code")
+      .eq("sell_enabled", true)
+      .eq("ship_enabled", true)
+      .in("tax_status", ["approved", "legacy"])
+      .in("shipping_status", ["approved", "legacy"])
+      .in("compliance_status", ["approved", "legacy"])
+      .in("pricing_status", ["approved", "legacy"])
+      .in("payment_status", ["approved", "legacy"]);
+    if (marketError || !markets?.length) throw new Error("Aucun marché commercial autorisé n'est disponible pour ce routage.");
+    destinationCountries = markets.map((market) => String(market.code).toUpperCase()).filter(Boolean);
+  }
+
   const row = {
     supplier_connection_id: d.supplier_connection_id,
     product_id: d.product_id,
@@ -320,7 +335,7 @@ export async function saveSupplierMapping(form: FormData) {
     min_retail_cents: Math.round(d.min_retail_eur * 100),
     max_retail_cents: d.max_retail_eur == null ? null : Math.round(d.max_retail_eur * 100),
     priority: d.priority,
-    destination_countries: (d.destination_countries || "").split(",").map((v) => v.trim().toUpperCase()).filter(Boolean).slice(0, 100),
+    destination_countries: destinationCountries,
   };
 
   if (d.id) {

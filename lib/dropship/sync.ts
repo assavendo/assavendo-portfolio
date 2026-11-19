@@ -64,7 +64,7 @@ async function refreshSyncedProducts(
 
   for (const productId of ids) {
     const { data: product } = await db.from("products")
-      .select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images")
+.select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty")
       .eq("id", productId)
       .maybeSingle();
     if (!product || product.kind !== "physical") continue;
@@ -77,9 +77,13 @@ async function refreshSyncedProducts(
 
     const pricedVariants = (variants ?? []).filter((v) => Number(v.price_cents ?? 0) > 0);
     const prices = pricedVariants.map((v) => Number(v.price_cents));
-    const stock = (variants ?? []).reduce((sum, v) => sum + Math.max(0, Number(v.stock_qty ?? 0)), 0);
+    const stock = (variants ?? []).length
+      ? (variants ?? []).reduce((sum, v) => sum + Math.max(0, Number(v.stock_qty ?? 0)), 0)
+      : Math.max(0, Number(product.stock_qty ?? 0));
     const minPrice = prices.length ? Math.min(...prices) : Number(product.price_cents ?? 0);
-    const hasStock = (variants ?? []).some((v) => Number(v.stock_qty ?? 0) > 0 && Number(v.price_cents ?? 0) > 0);
+    const hasStock = (variants ?? []).length
+      ? (variants ?? []).some((v) => Number(v.stock_qty ?? 0) > 0 && Number(v.price_cents ?? 0) > 0)
+      : Number(product.stock_qty ?? 0) > 0 && Number(product.price_cents ?? 0) > 0;
 
     const update: Record<string, unknown> = {
       price_cents: Math.max(0, Math.round(minPrice)),
