@@ -1,4 +1,4 @@
-export type Proposal = { title: string; summary: string; description: string; kind: "physical" | "digital" | "service"; price_eur: number; features: string[]; tags: string[] };
+export type Proposal = { title: string; summary: string; description: string; kind: "physical" | "digital" | "service"; price_eur: number; features: string[]; tags: string[]; category_id?: string };
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const list = (v: unknown, n: number, max: number) => (Array.isArray(v) ? v.map((x) => str(x, max)).filter(Boolean).slice(0, n) : []);
@@ -14,9 +14,11 @@ export function parseProposal(text: string): { ok: true; value: Proposal } | { o
   if (summary.length < 10) return { ok: false, error: "Résumé manquant ou trop court." };
   const kind = o.kind === undefined ? "digital" : o.kind;
   if (kind !== "physical" && kind !== "digital" && kind !== "service") return { ok: false, error: "Type de produit inconnu." };
+  const categoryId = o.category_id === undefined || o.category_id === "" ? undefined : String(o.category_id).trim();
+  if (categoryId && !/^[0-9a-f-]{36}$/i.test(categoryId)) return { ok: false, error: "category_id invalide." };
   const price = o.price_eur === undefined || o.price_eur === "" ? 0 : Number(o.price_eur);
   if (!Number.isFinite(price) || price < 0 || price > 100000) return { ok: false, error: "Prix invalide." };
-  return { ok: true, value: { title, summary, description: str(o.description, 6000), kind, price_eur: price, features: list(o.features, 10, 200), tags: list(o.tags, 10, 40) } };
+  return { ok: true, value: { title, summary, description: str(o.description, 6000), kind, price_eur: price, features: list(o.features, 10, 200), tags: list(o.tags, 10, 40), ...(categoryId ? { category_id: categoryId } : {}) } };
 }
 
 /**
