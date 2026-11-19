@@ -23,8 +23,9 @@ async function createSupplierMappingsForDraft(
   productId: string,
   supplierConnectionId: string | null,
   supplierVariants: Array<{ sku?: string; label?: string; options?: Record<string, string> }>,
+  productSku?: string,
 ): Promise<{ created: number; error?: string }> {
-  if (!supplierConnectionId || !supplierVariants.length) return { created: 0 };
+  if (!supplierConnectionId) return { created: 0 };
 
   const { data: markets } = await db.from("markets")
     .select("code")
@@ -44,11 +45,18 @@ async function createSupplierMappingsForDraft(
     .order("sort");
   if (variantsError) return { created: 0, error: "Impossible de lire les variantes internes après création." };
 
+  const internalVariants = productVariants ?? [];
+  const sourceVariants = supplierVariants.length ? supplierVariants : (
+    productSku?.trim() ? [{ sku: productSku.trim(), label: "Produit principal", options: {} }] : []
+  );
+  if (!sourceVariants.length) return { created: 0, error: "Le fournisseur a été sélectionné mais aucun SKU fournisseur exploitable n'a été extrait." };
+  const expectedCount = internalVariants.length || 1;
+  if (sourceVariants.length !== expectedCount) return { created: 0, error: "Le nombre de variantes fournisseur ne correspond pas au nombre de variantes Assavendo." };
+  if (sourceVariants.some((variant) => !String(variant.sku ?? "").trim())) return { created: 0, error: "Au moins une variante source n'a pas de SKU fournisseur. Aucun mapping partiel n'a été enregistré." };
   let created = 0;
-  for (let index = 0; index < supplierVariants.length && index < (productVariants ?? []).length; index += 1) {
-    const supplierSku = String(supplierVariants[index]?.sku ?? "").trim();
-    const variantId = String(productVariants?.[index]?.id ?? "");
-    if (!supplierSku || !variantId) continue;
+  for (let index = 0; index < sourceVariants.length; index += 1) {
+    const supplierSku = String(sourceVariants[index]?.sku ?? "").trim();
+    const variantId = internalVariants[index]?.id ?? null;
 
     const { data: existing, error: existingError } = await db.from("product_supplier_mappings")
       .select("id,product_id,variant_id")
@@ -480,7 +488,7 @@ export async function decideTask(form: FormData) {
         const existingConnectionId = typeof (payload.supplier_connection_id ?? existingExtracted.supplier_connection_id) === "string"
           ? String(payload.supplier_connection_id ?? existingExtracted.supplier_connection_id)
           : null;
-        const existingMappingResult = await createSupplierMappingsForDraft(db, String(source.product_id), existingConnectionId && /^[0-9a-f-]{36}$/i.test(existingConnectionId) ? existingConnectionId : null, existingVariants);
+        const existingMappingResult = await createSupplierMappingsForDraft(db, String(source.product_id), existingConnectionId && /^[0-9a-f-]{36}$/i.test(existingConnectionId) ? existingConnectionId : null, existingVariants, typeof existingExtracted.sku === "string" ? existingExtracted.sku : undefined);
         if (existingMappingResult.error) return back("Le brouillon existe mais son routage fournisseur n'est pas complet : " + existingMappingResult.error, "erreur");
         await db.from("ai_tasks").update({ status: "done", ...stamp, result: { product_id: source.product_id, import_id: importId } }).eq("id", tid).in("status", ["pending", "approved"]);
         return back("Le brouillon existant a été relié et la tâche finalisée; aucune copie n'a été créée.");
@@ -516,6 +524,7 @@ export async function decideTask(form: FormData) {
         createdId,
         supplierConnectionId && /^[0-9a-f-]{36}$/i.test(supplierConnectionId) ? supplierConnectionId : null,
         variants.map((variant) => ({ sku: variant.sku, label: variant.label, options: variant.options })),
+        typeof extracted.sku === "string" ? extracted.sku : undefined,
       );
       if (mappingResult.error) return back("Le brouillon a été créé mais le routage fournisseur n'est pas complet : " + mappingResult.error, "erreur");
       const { data: linked, error: linkError } = await db.from("dropship_imports").update({ status: "approved", product_id: createdId, decided_at: stamp.decided_at, decided_by: user.id, updated_at: stamp.decided_at, error: null }).eq("id", importId).eq("status", "needs_review").select("id").maybeSingle();

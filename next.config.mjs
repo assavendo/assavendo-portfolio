@@ -2,7 +2,7 @@ const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://js.stripe.com https://challenges.cloudflare.com" + (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""),
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
+  "img-src 'self' data: blob: https://cf.cjdropshipping.com https://oss-cf.cjdropshipping.com https://guedhfqivccvoveeqtch.supabase.co" + (process.env.SUPPLIER_IMAGE_HOSTS ? " " + process.env.SUPPLIER_IMAGE_HOSTS.split(",").map((host) => "https://" + host.trim()).join(" ") : ""),
   "font-src 'self' data:",
   "connect-src 'self' https://*.supabase.co https://api.stripe.com https://api.pwnedpasswords.com",
   "frame-src https://js.stripe.com https://checkout.stripe.com https://challenges.cloudflare.com",
@@ -14,7 +14,12 @@ const csp = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
-  images: { remotePatterns: [{ protocol: "https", hostname: "**" }] },
+  images: { remotePatterns: [
+    { protocol: "https", hostname: "cf.cjdropshipping.com" },
+    { protocol: "https", hostname: "oss-cf.cjdropshipping.com" },
+    { protocol: "https", hostname: "guedhfqivccvoveeqtch.supabase.co" },
+    ...(process.env.SUPPLIER_IMAGE_HOSTS ?? "").split(",").map((host) => host.trim()).filter(Boolean).map((hostname) => ({ protocol: "https", hostname })),
+  ] },
   async headers() {
     return [{
       source: "/:path*",
