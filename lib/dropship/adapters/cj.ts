@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { decryptSupplierSecret, encryptSupplierSecret } from "../crypto.ts";
+import { getRatesToEur } from "../fx";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, AdapterShippingContext, AdapterShippingOption, ShippingRuleRequirement, SupplierAdapter } from "./types";
 
 type CjCredentials = {
@@ -441,7 +442,7 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
   const providerOption = shippingQuote.providerOption && typeof shippingQuote.providerOption === "object"
     ? shippingQuote.providerOption as Record<string, unknown>
     : {};
-  const logisticName = String(providerOption.logisticsName ?? configString(connection, "cj_logistic_name")).trim();
+  const logisticName = String(providerOption.logisticsName ?? "").trim();
   const shopLogisticsType = Number(connection.config?.cj_shop_logistics_type ?? 2);
   const payType = Number(connection.config?.cj_pay_type ?? 2);
   const order = orderContext.order && typeof orderContext.order === "object" ? orderContext.order as Record<string, unknown> : {};
@@ -453,7 +454,7 @@ function buildOrderPayload(connection: AdapterConnection, orderContext: Record<s
   const country = destinationCountry(orderContext);
 
   if (!country) throw new Error("Pays de livraison manquant pour CJ.");
-  if (!logisticName) throw new Error("Configurez cj_logistic_name avant l'automatisation CJ.");
+  if (!logisticName) throw new Error("Aucun service logistique sélectionné pour la commande CJ.");
   if (![1, 2, 3].includes(shopLogisticsType)) throw new Error("cj_shop_logistics_type doit être 1, 2 ou 3.");
   if (![1, 2, 3].includes(iossType)) throw new Error("cj_ioss_type doit être 1, 2 ou 3.");
   if ((iossType === 2 || iossType === 3) && !iossNumber) throw new Error("Configurez cj_ioss_number pour ce mode IOSS.");
@@ -595,6 +596,8 @@ async function getShippingOptions(connection: AdapterConnection, context: Adapte
   if (!context.skuLines.length || context.skuLines.some((line) => !line.sku || line.quantity < 1)) throw new Error("Références fournisseur invalides pour le calcul logistique.");
 
   const shipping = context.shipping ?? {};
+  const fx = await getRatesToEur(["USD"]);
+  const totalGoodsAmountUsd = Math.max(0.01, Number(context.totalGoodsAmountEur) * fx.USD.rate);
   const request = {
     reqDTOS: [{
       srcAreaCode: context.sourceCountry.toUpperCase(),
@@ -602,7 +605,7 @@ async function getShippingOptions(connection: AdapterConnection, context: Adapte
       weight: Math.max(1, Math.round(context.weightG)),
       volume: Math.max(0.001, Number(context.volumeCm3)),
       wrapWeight: Math.max(0, Math.round(context.wrapWeightG)),
-      totalGoodsAmount: Math.max(0.01, Number(context.totalGoodsAmountEur)),
+      totalGoodsAmount: Number(totalGoodsAmountUsd.toFixed(2)),
       productProp: context.productProperties.length ? context.productProperties : ["COMMON"],
       skuList: context.skuLines.map((line) => line.sku),
       freightTrialSkuList: context.skuLines.map((line) => ({

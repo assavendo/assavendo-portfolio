@@ -21,6 +21,12 @@ alter table public.supplier_connections
 alter table public.product_variants
   add column if not exists weight_g integer;
 
+alter table public.product_supplier_mappings
+  add column if not exists supplier_weight_g integer;
+
+alter table public.product_supplier_mappings
+  add column if not exists supplier_volume_cm3 numeric;
+
 update public.product_supplier_mappings
 set supplier_volume_cm3 = case external_sku
   when 'CJJT110969701AZ' then 3600
@@ -103,12 +109,6 @@ alter table public.product_variants
 alter table public.product_variants
   add constraint product_variants_weight_g_check
   check (weight_g is null or weight_g > 0);
-
-alter table public.product_supplier_mappings
-  add column if not exists supplier_weight_g integer;
-
-alter table public.product_supplier_mappings
-  add column if not exists supplier_volume_cm3 numeric;
 
 alter table public.product_supplier_mappings
   drop constraint if exists product_supplier_mappings_supplier_volume_cm3_check;

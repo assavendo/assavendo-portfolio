@@ -186,7 +186,10 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
   const changed = priceChanged || stockChanged || availabilityChanged;
 
   if (mapping.variant_id) {
-    const { data: variant } = await db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle();
+    const variant = await assertDb(
+      db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle(),
+      "Lecture variante synchronisée",
+    );
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     if (retail !== null && retail !== variant?.price_cents) {
       await assertDb(db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id), "Mise à jour variante");
@@ -204,7 +207,10 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
       }
     }
   } else {
-    const { data: product } = await db.from("products").select("price_cents").eq("id", mapping.product_id).maybeSingle();
+    const product = await assertDb(
+      db.from("products").select("price_cents").eq("id", mapping.product_id).maybeSingle(),
+      "Lecture produit synchronisé",
+    );
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     const productUpdate: Record<string, unknown> = { stock_qty: qty };
     if (retail !== null) productUpdate.price_cents = retail;
@@ -328,23 +334,30 @@ export async function syncSupplierConnection(connectionId: string, trigger: "sch
 
     const published = await refreshSyncedProducts(db, connection, syncedProductIds);
     const now = new Date().toISOString();
-    await db.from("supplier_connections").update({
+    await assertDb(db.from("supplier_connections").update({
       status: "healthy", last_sync_at: now, last_success_at: now, last_error: null,
-    }).eq("id", connectionId);
-    await db.from("supplier_sync_runs").update({
+    }).eq("id", connectionId), "Mise à jour état connexion");
+    await assertDb(db.from("supplier_sync_runs").update({
       status: "success", finished_at: now, fetched_count: records.length, applied_count: applied,
       changed_count: changed, error_count: 0, metadata: { price_changes: priceChanges, stock_changes: stockChanges, published_products: published, provider: connection.name },
-    }).eq("id", run.id);
+    }).eq("id", run.id), "Mise à jour résultat synchronisation");
     return { connectionId, fetched: records.length, applied, changed, priceChanges, stockChanges, published, skipped: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Supplier synchronization failed.";
     const rateLimited = /CJ HTTP 429|1600200|QPS limit/i.test(message);
-    await db.from("supplier_connections").update({
-      status: rateLimited ? "rate_limited" : "degraded",
-      last_sync_at: new Date().toISOString(),
-      last_error: message.slice(0, 1000),
-    }).eq("id", connectionId);
-    await db.from("supplier_sync_runs").update({ status: "failed", finished_at: new Date().toISOString(), error_count: 1, error: message.slice(0, 2000) }).eq("id", run.id);
+    const failedAt = new Date().toISOString();
+    const [connectionWrite, runWrite] = await Promise.all([
+      db.from("supplier_connections").update({
+        status: rateLimited ? "rate_limited" : "degraded",
+        last_sync_at: failedAt,
+        last_error: message.slice(0, 1000),
+      }).eq("id", connectionId),
+      db.from("supplier_sync_runs").update({
+        status: "failed", finished_at: failedAt, error_count: 1, error: message.slice(0, 2000)
+      }).eq("id", run.id),
+    ]);
+    const persistenceErrors = [connectionWrite.error, runWrite.error].filter(Boolean).map((e) => e?.message ?? "erreur de journalisation");
+    if (persistenceErrors.length) throw new Error(message + " | Échec de journalisation de l'état : " + persistenceErrors.join(" ; "));
     throw error;
   } finally {
     await releaseSupplierJobLock(lockKey, lockedBy);

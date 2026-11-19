@@ -52,6 +52,8 @@ export type SupplierInventoryRecord = {
   supplier_qty: number | null;
   supplier_price_cents: number | null;
   supplier_currency: string | null;
+  supplier_weight_g?: number | null;
+  supplier_volume_cm3?: number | null;
   available: boolean | null;
   raw: unknown;
 };
