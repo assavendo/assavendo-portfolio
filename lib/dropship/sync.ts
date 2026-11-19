@@ -28,6 +28,12 @@ type Mapping = {
   external_variant_id: string | null;
 };
 
+async function assertDb<T>(operation: PromiseLike<{ data?: T; error: { message?: string } | null }>, label: string): Promise<T | undefined> {
+  const result = await operation;
+  if (result.error) throw new Error(label + ": " + (result.error.message ?? "erreur Supabase"));
+  return result.data;
+}
+
 function retailFromCost(mapping: Mapping, costCents: number): number | null {
   if (!mapping.auto_reprice || mapping.reprice_mode === "cost_only") return null;
   let retail = costCents;
@@ -63,17 +69,10 @@ async function refreshSyncedProducts(
   let published = 0;
 
   for (const productId of ids) {
-    const { data: product } = await db.from("products")
-.select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty,category_id")
-      .eq("id", productId)
-      .maybeSingle();
+    const product = await assertDb(db.from("products").select("id,kind,status,price_cents,shipping_cents,delivery_min_days,delivery_max_days,images,stock_qty,category_id").eq("id", productId).maybeSingle(), "Lecture produit");
     if (!product || product.kind !== "physical") continue;
 
-    const { data: variants } = await db.from("product_variants")
-      .select("price_cents,stock_qty,active")
-      .eq("product_id", productId)
-      .eq("active", true)
-      .order("sort");
+    const variants = await assertDb(db.from("product_variants").select("price_cents,stock_qty,active").eq("product_id", productId).eq("active", true).order("sort"), "Lecture variantes") ?? [];
 
     const pricedVariants = (variants ?? []).filter((v) => Number(v.price_cents ?? 0) > 0);
     const prices = pricedVariants.map((v) => Number(v.price_cents));
@@ -93,7 +92,7 @@ async function refreshSyncedProducts(
       update.delivery_min_days = deliveryMin;
       update.delivery_max_days = deliveryMax;
     }
-    await db.from("products").update(update).eq("id", productId);
+    await assertDb(db.from("products").update(update).eq("id", productId), "Mise à jour produit");
 
     if (!autoPublish || product.status !== "draft" || !hasStock || !product.category_id) continue;
     const images = Array.isArray(product.images) ? product.images as Array<{ url?: string; alt?: string }> : [];
@@ -109,7 +108,8 @@ async function refreshSyncedProducts(
       stock_qty: stock,
       ...(update.delivery_min_days ? { delivery_min_days: update.delivery_min_days, delivery_max_days: update.delivery_max_days } : {}),
     }).eq("id", productId).eq("status", "draft");
-    if (!publishError) published += 1;
+    if (publishError) throw new Error("Publication produit: " + publishError.message);
+    published += 1;
   }
   return published;
 }
@@ -173,18 +173,18 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     const { data: variant } = await db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle();
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     if (retail !== null && retail !== variant?.price_cents) {
-      await db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id);
-      await db.from("supplier_price_history").insert({
+      await assertDb(db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id), "Mise à jour variante");
+      await assertDb(db.from("supplier_price_history").insert({
         mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail, change_percent: percentChange(oldCost, cost), source: "sync",
-      });
+      }), "Historique prix");
     } else {
-      await db.from("product_variants").update({ stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id);
+      await assertDb(db.from("product_variants").update({ stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id), "Mise à jour stock variante");
       if (priceChanged) {
-        await db.from("supplier_price_history").insert({
+        await assertDb(db.from("supplier_price_history").insert({
           mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
           retail_price_cents: variant?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
-        });
+        }), "Historique prix");
       }
     }
   } else {
@@ -192,16 +192,16 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     const productUpdate: Record<string, unknown> = { stock_qty: qty };
     if (retail !== null) productUpdate.price_cents = retail;
-    await db.from("products").update(productUpdate).eq("id", mapping.product_id);
+    await assertDb(db.from("products").update(productUpdate).eq("id", mapping.product_id), "Mise à jour produit");
     if (priceChanged) {
-      await db.from("supplier_price_history").insert({
+      await assertDb(db.from("supplier_price_history").insert({
         mapping_id: mapping.id, old_cost_cents: oldCost, new_cost_cents: cost, currency: "eur", source_cost_cents: sourceCost, source_currency: sourceCurrency, fx_rate_to_eur: fxRate,
         retail_price_cents: retail ?? product?.price_cents ?? null, change_percent: percentChange(oldCost, cost), source: "sync",
-      });
+      }), "Historique prix");
     }
   }
 
-  await db.from("supplier_inventory_snapshots").insert({
+  await assertDb(db.from("supplier_inventory_snapshots").insert({
     supplier_connection_id: connectionId,
     mapping_id: mapping.id,
     external_sku: record.external_sku,
@@ -213,10 +213,10 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     fx_rate_to_eur: fxRate,
     available,
     raw_payload: record.raw && typeof record.raw === "object" ? record.raw : {},
-  });
+  }), "Snapshot inventaire");
 
   const now = new Date().toISOString();
-  await db.from("product_supplier_mappings").update({
+  await assertDb(db.from("product_supplier_mappings").update({
     supplier_cost_cents: cost,
     supplier_currency: "eur",
     source_cost_cents: sourceCost,
@@ -230,7 +230,7 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
     last_price_change_at: priceChanged ? now : undefined,
     last_stock_change_at: stockChanged ? now : undefined,
     last_error: null,
-  }).eq("id", mapping.id);
+  }).eq("id", mapping.id), "Mise à jour mapping");
 
   return { changed, priceChanged, stockChanged };
 }
