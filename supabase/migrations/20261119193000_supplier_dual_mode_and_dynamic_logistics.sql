@@ -21,6 +21,32 @@ alter table public.supplier_connections
 alter table public.product_variants
   add column if not exists weight_g integer;
 
+update public.product_variants
+set weight_g = case sku
+  when 'AV-LMP-01' then 53
+  when 'AV-LMP-02' then 53
+  when 'AV-LMP-03' then 94
+  when 'AV-LMP-04' then 148
+  when 'AV-LMP-05' then 141
+  when 'AV-LMP-06' then 141
+  when 'AV-LMP-07' then 188
+  when 'AV-LMP-08' then 188
+  when 'AV-LMP-09' then 235
+  when 'AV-LMP-10' then 235
+  when 'AV-LMP-11' then 282
+  when 'AV-LMP-12' then 282
+  when 'AV-LMP-13' then 329
+  when 'AV-LMP-14' then 329
+  when 'AV-LMP-15' then 376
+  when 'AV-LMP-16' then 376
+  when 'AV-LMP-17' then 492
+  when 'AV-LMP-18' then 668
+  else weight_g
+end
+where sku in ('AV-LMP-01','AV-LMP-02','AV-LMP-03','AV-LMP-04','AV-LMP-05','AV-LMP-06','AV-LMP-07','AV-LMP-08','AV-LMP-09','AV-LMP-10','AV-LMP-11','AV-LMP-12','AV-LMP-13','AV-LMP-14','AV-LMP-15','AV-LMP-16','AV-LMP-17','AV-LMP-18');
+
+
+
 alter table public.product_variants
   drop constraint if exists product_variants_weight_g_check;
 
@@ -30,6 +56,18 @@ alter table public.product_variants
 
 alter table public.product_supplier_mappings
   add column if not exists logistics_properties text[];
+
+update public.products
+set slug = 'lampe-led-detection-mouvement-magnetique',
+    description = 'Lampe LED rechargeable à détection de mouvement avec capteur PIR. Elle s’allume automatiquement dans l’obscurité lorsqu’un mouvement est détecté et s’éteint après environ 25 secondes sans mouvement. Fixation sans câblage grâce à un aimant intégré et à un adhésif double face. Recharge USB. Portée indicative de 3 à 6 mètres et angle de détection de 120 degrés selon les caractéristiques communiquées pour ce modèle.'
+where id = '54378db7-61c8-4c9f-86f7-55264664b47d'::uuid
+  and slug = 'lampe-led-detection-mouvement-magnetique-cj';
+
+update public.product_supplier_mappings
+set logistics_properties = array['BATTERY','HAVE_MAGNETISM']::text[]
+where product_id = '54378db7-61c8-4c9f-86f7-55264664b47d'::uuid
+  and supplier_connection_id = 'a4dece0a-ded4-46e7-87d1-435411a21078'::uuid;
+
 
 alter table public.product_supplier_mappings
   alter column logistics_properties set default '{}';
