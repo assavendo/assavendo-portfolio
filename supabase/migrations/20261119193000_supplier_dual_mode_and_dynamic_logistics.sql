@@ -22,6 +22,31 @@ alter table public.product_variants
   add column if not exists weight_g integer;
 
 update public.product_supplier_mappings
+set supplier_volume_cm3 = case external_sku
+  when 'CJJT110969701AZ' then 3600
+  when 'CJJT110969702BY' then 3600
+  when 'CJJT110969703CX' then 518.4
+  when 'CJJT110969704DW' then 7200
+  when 'CJJT110969705EV' then 7920
+  when 'CJJT110969706FU' then 7920
+  when 'CJJT110969707GT' then 12000
+  when 'CJJT110969708HS' then 12000
+  when 'CJJT110969709IR' then 7200
+  when 'CJJT110969710JQ' then 7200
+  when 'CJJT110969711KP' then 7200
+  when 'CJJT110969712LO' then 8000
+  when 'CJJT110969713MN' then 8800
+  when 'CJJT110969714NM' then 7200
+  when 'CJJT110969715OL' then 8000
+  when 'CJJT110969716PK' then 8800
+  when 'CJJT110969717QJ' then 8800
+  when 'CJJT110969718RI' then 8800
+  else supplier_volume_cm3
+end
+where supplier_connection_id = 'a4dece0a-ded4-46e7-87d1-435411a21078'::uuid
+  and external_sku like 'CJJT1109697%';
+
+update public.product_supplier_mappings
 set supplier_weight_g = case external_sku
   when 'CJJT110969701AZ' then 53
   when 'CJJT110969702BY' then 53
@@ -81,6 +106,16 @@ alter table public.product_variants
 
 alter table public.product_supplier_mappings
   add column if not exists supplier_weight_g integer;
+
+alter table public.product_supplier_mappings
+  add column if not exists supplier_volume_cm3 numeric;
+
+alter table public.product_supplier_mappings
+  drop constraint if exists product_supplier_mappings_supplier_volume_cm3_check;
+
+alter table public.product_supplier_mappings
+  add constraint product_supplier_mappings_supplier_volume_cm3_check
+  check (supplier_volume_cm3 is null or supplier_volume_cm3 > 0);
 
 alter table public.product_supplier_mappings
   drop constraint if exists product_supplier_mappings_supplier_weight_g_check;
@@ -147,6 +182,9 @@ create index if not exists supplier_connections_fulfillment_mode_idx
 
 create index if not exists supplier_mappings_supplier_weight_idx
   on public.product_supplier_mappings(supplier_weight_g);
+
+create index if not exists supplier_mappings_supplier_volume_idx
+  on public.product_supplier_mappings(supplier_volume_cm3);
 
 create index if not exists orders_shipping_method_idx
   on public.orders(shipping_method_code);
