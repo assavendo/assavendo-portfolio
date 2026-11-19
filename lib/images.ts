@@ -1,4 +1,4 @@
-const DEFAULT_ALLOWED_IMAGE_HOSTS = ["cf.cjdropshipping.com"];
+const DEFAULT_ALLOWED_IMAGE_HOSTS = ["cf.cjdropshipping.com", "images.unsplash.com", "supabase.co"];
 
 export function allowedImageHosts(): string[] {
   const configured = String(process.env.ASSAVENDO_ALLOWED_IMAGE_HOSTS ?? "")
@@ -8,7 +8,7 @@ export function allowedImageHosts(): string[] {
 
 function hostnameAllowed(host: string): boolean {
   const normalized = host.toLowerCase();
-  return allowedImageHosts().some((allowed) => normalized === allowed || normalized.endsWith("." + allowed));
+  return allowedImageHosts().some((allowed) => normalized === allowed || (allowed === "supabase.co" && normalized.endsWith(".supabase.co")) || normalized.endsWith("." + allowed));
 }
 
 /** Images externes : HTTPS, hôte explicitement autorisé, sans identifiants et hors réseau privé. */
