@@ -80,7 +80,7 @@ export async function startCartCheckout(_: FormState, form: FormData): Promise<F
       const selected = await revalidateCartShippingSelection(lines, parsed.data.country, parsed.data.shipping_method, shippingPayload);
       const required = new Map(selected.snapshot.providerOption.requirements.map((r) => [r.type, r]));
       const values: Record<string, string> = {
-        phone: parsed.data.phone,
+        phone: parsed.data.phone ?? "",
         zip: parsed.data.postal_code,
         city: parsed.data.city,
         province: "",
