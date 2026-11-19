@@ -35,6 +35,8 @@ type CjVariant = {
   pid?: string;
   variantSku?: string;
   variantSellPrice?: number | string;
+  variantWeight?: number | string;
+  variantVolume?: number | string;
 };
 
 type CjProductInventory = {
