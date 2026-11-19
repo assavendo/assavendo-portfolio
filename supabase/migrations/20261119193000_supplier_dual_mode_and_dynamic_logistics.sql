@@ -21,6 +21,39 @@ alter table public.supplier_connections
 alter table public.product_variants
   add column if not exists weight_g integer;
 
+
+
+
+alter table public.product_variants
+  drop constraint if exists product_variants_weight_g_check;
+
+alter table public.product_variants
+  add constraint product_variants_weight_g_check
+  check (weight_g is null or weight_g > 0);
+
+alter table public.product_supplier_mappings
+  add column if not exists supplier_weight_g integer;
+
+alter table public.product_supplier_mappings
+  add column if not exists supplier_volume_cm3 numeric;
+
+alter table public.product_supplier_mappings
+  drop constraint if exists product_supplier_mappings_supplier_volume_cm3_check;
+
+alter table public.product_supplier_mappings
+  add constraint product_supplier_mappings_supplier_volume_cm3_check
+  check (supplier_volume_cm3 is null or supplier_volume_cm3 > 0);
+
+alter table public.product_supplier_mappings
+  drop constraint if exists product_supplier_mappings_supplier_weight_g_check;
+
+alter table public.product_supplier_mappings
+  add constraint product_supplier_mappings_supplier_weight_g_check
+  check (supplier_weight_g is null or supplier_weight_g > 0);
+
+alter table public.product_supplier_mappings
+  add column if not exists logistics_properties text[];
+
 update public.product_supplier_mappings
 set supplier_volume_cm3 = case external_sku
   when 'CJJT110969701AZ' then 3600
@@ -96,36 +129,30 @@ end
 where sku in ('AV-LMP-01','AV-LMP-02','AV-LMP-03','AV-LMP-04','AV-LMP-05','AV-LMP-06','AV-LMP-07','AV-LMP-08','AV-LMP-09','AV-LMP-10','AV-LMP-11','AV-LMP-12','AV-LMP-13','AV-LMP-14','AV-LMP-15','AV-LMP-16','AV-LMP-17','AV-LMP-18');
 
 
+update public.product_variants
+set weight_g = case sku
+  when 'AV-LMP-01' then 53
+  when 'AV-LMP-02' then 53
+  when 'AV-LMP-03' then 148
+  when 'AV-LMP-04' then 94
+  when 'AV-LMP-05' then 141
+  when 'AV-LMP-06' then 141
+  when 'AV-LMP-07' then 329
+  when 'AV-LMP-08' then 329
+  when 'AV-LMP-09' then 235
+  when 'AV-LMP-10' then 235
+  when 'AV-LMP-11' then 282
+  when 'AV-LMP-12' then 282
+  when 'AV-LMP-13' then 376
+  when 'AV-LMP-14' then 188
+  when 'AV-LMP-15' then 282
+  when 'AV-LMP-16' then 376
+  when 'AV-LMP-17' then 492
+  when 'AV-LMP-18' then 668
+  else weight_g
+end
+where sku in ('AV-LMP-01','AV-LMP-02','AV-LMP-03','AV-LMP-04','AV-LMP-05','AV-LMP-06','AV-LMP-07','AV-LMP-08','AV-LMP-09','AV-LMP-10','AV-LMP-11','AV-LMP-12','AV-LMP-13','AV-LMP-14','AV-LMP-15','AV-LMP-16','AV-LMP-17','AV-LMP-18');
 
-alter table public.product_variants
-  drop constraint if exists product_variants_weight_g_check;
-
-alter table public.product_variants
-  add constraint product_variants_weight_g_check
-  check (weight_g is null or weight_g > 0);
-
-alter table public.product_supplier_mappings
-  add column if not exists supplier_weight_g integer;
-
-alter table public.product_supplier_mappings
-  add column if not exists supplier_volume_cm3 numeric;
-
-alter table public.product_supplier_mappings
-  drop constraint if exists product_supplier_mappings_supplier_volume_cm3_check;
-
-alter table public.product_supplier_mappings
-  add constraint product_supplier_mappings_supplier_volume_cm3_check
-  check (supplier_volume_cm3 is null or supplier_volume_cm3 > 0);
-
-alter table public.product_supplier_mappings
-  drop constraint if exists product_supplier_mappings_supplier_weight_g_check;
-
-alter table public.product_supplier_mappings
-  add constraint product_supplier_mappings_supplier_weight_g_check
-  check (supplier_weight_g is null or supplier_weight_g > 0);
-
-alter table public.product_supplier_mappings
-  add column if not exists logistics_properties text[];
 
 update public.products
 set slug = 'lampe-led-detection-mouvement-magnetique',
