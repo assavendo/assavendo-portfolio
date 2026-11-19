@@ -6,6 +6,7 @@ export type AdapterConnection = {
   base_url: string | null;
   enabled: boolean;
   auto_order_enabled: boolean;
+  fulfillment_mode: "manual" | "auto";
   webhook_enabled: boolean;
   sync_interval_seconds: number;
   credentials_ciphertext: string | null;
@@ -26,6 +27,41 @@ export type AdapterInventoryRecord = {
   raw: unknown;
 };
 
+export type ShippingRuleRequirement = {
+  type: string;
+  message: string | null;
+  expression: string | null;
+  interceptType: string | null;
+};
+
+export type AdapterShippingOption = {
+  code: string;
+  logisticsName: string;
+  label: string;
+  channelId: string | null;
+  optionId: string | null;
+  priceUsd: number;
+  taxesUsd: number;
+  clearanceUsd: number;
+  tariffUsd: number;
+  totalUsd: number;
+  minDays: number | null;
+  maxDays: number | null;
+  requirements: ShippingRuleRequirement[];
+  raw: unknown;
+};
+
+export type AdapterShippingContext = {
+  destinationCountry: string;
+  sourceCountry: string;
+  weightG: number;
+  wrapWeightG: number;
+  totalGoodsAmountEur: number;
+  skuLines: Array<{ sku: string; variantId?: string | null; quantity: number; weightG?: number | null }>;
+  productProperties: string[];
+  shipping?: Record<string, unknown>;
+};
+
 export type AdapterOrderResult = {
   external_order_id: string | null;
   external_status: string | null;
@@ -40,4 +76,5 @@ export type SupplierAdapter = {
   fetchInventory: (connection: AdapterConnection, externalSkus: string[]) => Promise<AdapterInventoryRecord[]>;
   submitOrder: (connection: AdapterConnection, orderContext: Record<string, unknown>, idempotencyKey: string) => Promise<AdapterOrderResult>;
   getOrderStatus: (connection: AdapterConnection, externalOrderId: string, context: Record<string, unknown>) => Promise<AdapterOrderResult>;
+  getShippingOptions?: (connection: AdapterConnection, context: AdapterShippingContext) => Promise<AdapterShippingOption[]>;
 };
