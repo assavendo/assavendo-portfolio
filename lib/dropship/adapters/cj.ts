@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { decryptSupplierSecret, encryptSupplierSecret } from "../crypto.ts";
-import { getRatesToEur } from "../fx";
+import { getRatesToEur } from "../fx.ts";
 import type { AdapterConnection, AdapterInventoryRecord, AdapterOrderResult, AdapterShippingContext, AdapterShippingOption, ShippingRuleRequirement, SupplierAdapter } from "./types";
 
 type CjCredentials = {
