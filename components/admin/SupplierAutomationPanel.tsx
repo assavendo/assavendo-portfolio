@@ -9,6 +9,7 @@ import {
   toggleSupplierConnection,
   deleteSupplierMapping,
   retrySupplierOrder,
+  updateManualSupplierOrder,
 } from "@/app/actions/supplier-automation";
 import { SUPPLIER_PROVIDERS, getSupplierProvider } from "@/lib/dropship/providers";
 
@@ -70,6 +71,7 @@ type Mapping = {
 type SupplierOrder = {
   id: string;
   status: string;
+  fulfillment_mode: "manual" | "automatic";
   client_reference: string;
   external_order_id: string | null;
   supplier_total_cents: number;
@@ -310,7 +312,15 @@ export function SupplierAutomationPanel({ connections, mappings, orders, product
           </div>
         </div>
         <div className="saw-section"><div className="saw-title"><h3>Commandes fournisseur</h3><span className="saw-pill">{orders.length}</span></div>
-          <div className="saw-list">{orders.length ? orders.map((o)=><article className="saw-card" key={o.id}><div className="saw-card-top"><div><h4>{o.orders?.order_number ?? o.client_reference} · {o.supplier_connections?.name ?? "Fournisseur"}</h4><div className="saw-meta">Coût {eur(o.supplier_total_cents)} · {date(o.created_at)}{o.external_order_id ? " · ID externe "+o.external_order_id : ""}</div></div><span className={"saw-status "+statusClass(o.status)}>{o.status}</span></div>{o.last_error ? <div className="saw-meta" style={{color:"#ffb0b0"}}>{o.last_error}</div> : null}{o.tracking_number ? <div className="saw-meta">Suivi : {o.tracking_number}</div> : null}<div className="saw-actions">{["failed","needs_review"].includes(o.status) ? <form action={retrySupplierOrder}><input type="hidden" name="id" value={o.id}/><button className="saw-btn">Réessayer</button></form>:null}</div></article>) : <div className="saw-empty">Aucune commande fournisseur.</div>}</div>
+          <div className="saw-list">{orders.length ? orders.map((o)=><article className="saw-card" key={o.id}><div className="saw-card-top"><div><h4>{o.orders?.order_number ?? o.client_reference} · {o.supplier_connections?.name ?? "Fournisseur"}</h4><div className="saw-meta">Coût {eur(o.supplier_total_cents)} · {date(o.created_at)}{o.external_order_id ? " · ID externe "+o.external_order_id : ""}</div></div><span className={"saw-status "+statusClass(o.status)}>{o.status}</span></div>{o.last_error ? <div className="saw-meta" style={{color:"#ffb0b0"}}>{o.last_error}</div> : null}{o.tracking_number ? <div className="saw-meta">Suivi : {o.tracking_number}</div> : null}<div className="saw-actions">{o.fulfillment_mode === "manual" ? <form action={updateManualSupplierOrder} className="saw-actions" style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:6}}>
+            <input type="hidden" name="id" value={o.id}/>
+            <label className="saw-help">Référence fournisseur<input className="saw-input" name="external_order_id" defaultValue={o.external_order_id ?? ""} placeholder="Numéro CJ / fournisseur"/></label>
+            <label className="saw-help">Étape<select className="saw-select" name="status" defaultValue={o.status === "manual_pending" || o.status === "needs_review" ? "submitted" : o.status}><option value="submitted">Commandée chez le fournisseur</option><option value="processing">En préparation</option><option value="shipped">Expédiée</option><option value="delivered">Livrée</option><option value="failed">Échec / intervention requise</option></select></label>
+            <label className="saw-help">Numéro de suivi<input className="saw-input" name="tracking_number" defaultValue={o.tracking_number ?? ""}/></label>
+            <label className="saw-help">URL de suivi<input className="saw-input" type="url" name="tracking_url" defaultValue={o.tracking_url ?? ""} placeholder="https://…"/></label>
+            <button className="saw-btn saw-btn-primary" style={{gridColumn:"1 / -1"}}>Enregistrer le traitement manuel</button>
+          </form> : null}
+          {o.fulfillment_mode === "automatic" && o.status === "failed" ? <form action={retrySupplierOrder}><input type="hidden" name="id" value={o.id}/><button className="saw-btn">Réessayer automatiquement</button></form>:null}</div></article>) : <div className="saw-empty">Aucune commande fournisseur.</div>}</div>
         </div>
       </div>
     </div>

@@ -73,7 +73,7 @@ export async function queueSupplierOrders(orderId: string) {
       if (m.product_id !== item.product_id || !m.enabled) return false;
       if (!(m.variant_id === item.variant_id || (!m.variant_id && !item.variant_id))) return false;
       const connection = connections.get(m.supplier_connection_id);
-      return Boolean(connection?.enabled && connection?.auto_order_enabled && supportsCountry(m));
+      return Boolean(connection?.enabled && supportsCountry(m));
     });
     const ranked = [...matching].sort((a, b) => {
       const aReady = a.available && a.supplier_qty >= item.qty && Boolean(a.supplier_cost_cents) && a.supplier_currency === "eur";
@@ -98,7 +98,8 @@ export async function queueSupplierOrders(orderId: string) {
   let queued = 0;
   for (const [connectionId, groupItems] of groups) {
     const connection = connections.get(connectionId);
-    if (!connection || !connection.auto_order_enabled || !connection.enabled) { needsReview = true; continue; }
+    if (!connection || !connection.enabled) { needsReview = true; continue; }
+    const automaticMode = connection.auto_order_enabled === true;
     for (const group of groupItems) {
       if (!isFresh(group.mapping, Number(connection.sync_interval_seconds ?? 900))) needsReview = true;
     }
@@ -118,7 +119,7 @@ export async function queueSupplierOrders(orderId: string) {
       }
     } else {
       const created = await db.from("supplier_order_groups")
-        .insert({ order_id: orderId, status: needsReview ? "needs_review" : "processing" })
+        .insert({ order_id: orderId, status: needsReview ? "needs_review" : (automaticMode ? "processing" : "pending") })
         .select("id")
         .single();
       if (created.error || !created.data) throw created.error ?? new Error("Unable to create supplier order group.");
@@ -146,12 +147,13 @@ export async function queueSupplierOrders(orderId: string) {
       order_group_id: orderGroupId,
       supplier_connection_id: connectionId,
       order_id: orderId,
-      status: needsReview ? "needs_review" : "queued",
+      status: needsReview ? "needs_review" : (automaticMode ? "queued" : "manual_pending"),
+      fulfillment_mode: automaticMode ? "automatic" : "manual",
       client_reference: String(order.order_number || orderId),
       currency: "eur",
       supplier_total_cents: totalCost,
       idempotency_key: idempotencyKey,
-      next_attempt_at: needsReview ? null : new Date().toISOString(),
+      next_attempt_at: needsReview || !automaticMode ? null : new Date().toISOString(),
     }).select("id").single();
     if (supplierOrderError || !supplierOrder) throw supplierOrderError ?? new Error("Unable to enqueue supplier order.");
     await db.from("supplier_order_items").delete().eq("supplier_order_id", supplierOrder.id);
@@ -171,14 +173,14 @@ export async function queueSupplierOrders(orderId: string) {
         });
       }
     }
-    if (!needsReview) queued += 1;
+    if (!needsReview && automaticMode) queued += 1;
   }
 
   if (needsReview) {
     await db.from("orders").update({ needs_review: true, review_note: "La commande physique nécessite une vérification fournisseur avant l'envoi automatique." }).eq("id", orderId);
     await db.from("supplier_order_groups").update({ status: "needs_review" }).eq("order_id", orderId);
   }
-  return { queued, needsReview };
+  return { queued, manualPending: [...groups.keys()].filter((id) => connections.get(id)?.auto_order_enabled === false).length, needsReview };
 }
 
 function orderContext(order: any, supplierItems: any[]) {
@@ -226,14 +228,14 @@ async function dispatchOne(supplierOrderId: string) {
     .update({ status: "submitting", attempts: nextAttempt, last_attempt_at: new Date().toISOString() })
     .eq("id", supplierOrderId)
     .in("status", ["queued","failed"])
-    .select("id,order_id,supplier_connection_id,client_reference,attempts");
+    .select("id,order_id,supplier_connection_id,client_reference,attempts,fulfillment_mode");
   if (claim.error || !(claim.data ?? []).length) return { skipped: true };
   const current = claim.data[0];
 
   const { data: order } = await db.from("orders").select("id,order_number,created_at,status,customer_email,shipping,billing,currency,amount_cents,fulfilment").eq("id", current.order_id).maybeSingle();
   const { data: items } = await db.from("supplier_order_items").select("id,external_sku,external_product_id,external_variant_id,quantity,supplier_unit_cost_cents,currency,order_items(title,variant_label)").eq("supplier_order_id", supplierOrderId);
   const connection = await loadSupplierConnection(current.supplier_connection_id);
-  if (!order || order.status !== "paid" || !connection.enabled || !connection.auto_order_enabled || !items?.length) {
+  if (!order || order.status !== "paid" || current.fulfillment_mode !== "automatic" || !connection.enabled || !connection.auto_order_enabled || !items?.length) {
     await db.from("supplier_orders").update({ status: "needs_review", last_error: "Commande fournisseur non éligible à l'envoi automatique." }).eq("id", supplierOrderId);
     return { needsReview: true };
   }
@@ -293,7 +295,7 @@ export async function dispatchSupplierOrders(limit = 10) {
 
 export async function refreshSupplierOrders(limit = 10) {
   const db = supabaseAdmin();
-  const { data: orders, error } = await db.from("supplier_orders").select("id,supplier_connection_id,external_order_id,order_id,tracking_number,tracking_url").in("status", ["submitted","confirmed","processing","shipped"]).not("external_order_id", "is", null).limit(limit);
+  const { data: orders, error } = await db.from("supplier_orders").select("id,supplier_connection_id,external_order_id,order_id,tracking_number,tracking_url").in("status", ["submitted","confirmed","processing","shipped"]).eq("fulfillment_mode", "automatic").not("external_order_id", "is", null).limit(limit);
   if (error) throw error;
   const results: unknown[] = [];
   for (const row of orders ?? []) {

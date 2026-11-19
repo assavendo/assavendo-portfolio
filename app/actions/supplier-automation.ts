@@ -357,10 +357,57 @@ export async function deleteSupplierMapping(form: FormData) {
 export async function retrySupplierOrder(form: FormData) {
   await requireAdmin();
   const id = z.string().uuid().parse(form.get("id"));
-  const { error } = await supabaseAdmin().from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).in("status", ["failed","needs_review"]);
+  const db = supabaseAdmin();
+  const { data: order, error: readError } = await db.from("supplier_orders").select("id,fulfillment_mode,status").eq("id", id).maybeSingle();
+  if (readError || !order) throw new Error("Commande fournisseur introuvable.");
+  if (order.fulfillment_mode !== "automatic") throw new Error("Cette commande est en traitement manuel. Aucun envoi CJ ne sera lancé.");
+  if (order.status !== "failed") throw new Error("Seules les commandes automatiques en échec peuvent être relancées après vérification.");
+  const { error } = await db.from("supplier_orders").update({ status: "queued", last_error: null, next_attempt_at: new Date().toISOString() }).eq("id", id).eq("status", "failed").eq("fulfillment_mode", "automatic");
   if (error) throw new Error("Impossible de remettre la commande fournisseur dans la file : " + error.message);
   await dispatchSupplierOrders(1);
-  return done("Commande fournisseur remise en traitement.");
+  return done("Commande fournisseur automatique remise en traitement.");
+}
+
+export async function updateManualSupplierOrder(form: FormData) {
+  await requireAdmin();
+  const parsed = z.object({
+    id: z.string().uuid(),
+    status: z.enum(["submitted", "processing", "shipped", "delivered", "failed"]),
+    external_order_id: z.string().trim().max(180).optional().or(z.literal("")),
+    tracking_number: z.string().trim().max(180).optional().or(z.literal("")),
+    tracking_url: z.string().trim().url().max(1000).optional().or(z.literal("")),
+  }).safeParse(Object.fromEntries(form));
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Informations de traitement manuel invalides.");
+  const d = parsed.data;
+  const db = supabaseAdmin();
+  const { data: current, error: readError } = await db.from("supplier_orders").select("id,order_id,fulfillment_mode,status").eq("id", d.id).maybeSingle();
+  if (readError || !current) throw new Error("Commande fournisseur introuvable.");
+  if (current.fulfillment_mode !== "manual") throw new Error("Cette commande appartient au mode automatique.");
+  if (!["manual_pending", "needs_review", "failed", "submitted", "processing", "shipped"].includes(current.status)) throw new Error("Cette commande ne peut plus être modifiée depuis le traitement manuel.");
+  if (["submitted", "processing", "shipped", "delivered"].includes(d.status) && !d.external_order_id) throw new Error("Saisissez la référence de commande créée chez le fournisseur.");
+  if (d.tracking_url && !d.tracking_url.startsWith("https://")) throw new Error("Le lien de suivi doit utiliser HTTPS.");
+  if (["shipped", "delivered"].includes(d.status) && !d.tracking_number) throw new Error("Un numéro de suivi est requis pour confirmer l'expédition ou la livraison.");
+  const now = new Date().toISOString();
+  const { error: updateError } = await db.from("supplier_orders").update({
+    status: d.status, external_order_id: d.external_order_id || null, external_status: "MANUAL_" + d.status.toUpperCase(),
+    tracking_number: d.tracking_number || null, tracking_url: d.tracking_url || null,
+    submitted_at: d.external_order_id ? now : null, last_error: d.status === "failed" ? "Traitement manuel signalé en échec; intervention requise." : null,
+    next_attempt_at: null,
+  }).eq("id", d.id).eq("fulfillment_mode", "manual");
+  if (updateError) throw new Error("Mise à jour du traitement manuel impossible : " + updateError.message);
+  const itemStatus = d.status === "failed" ? "failed" : d.status === "submitted" ? "submitted" : "confirmed";
+  const { error: itemError } = await db.from("supplier_order_items").update({ status: itemStatus }).eq("supplier_order_id", d.id);
+  if (itemError) throw new Error("Statut des lignes fournisseur non mis à jour : " + itemError.message);
+  const { error: groupError } = await db.from("supplier_order_groups").update({ status: d.status === "failed" ? "failed" : d.status === "delivered" ? "complete" : "processing" }).eq("order_id", current.order_id);
+  if (groupError) throw new Error("Statut du groupe fournisseur non mis à jour : " + groupError.message);
+  const fulfilment = d.status === "delivered" ? "delivered" : d.status === "shipped" ? "shipped" : d.status === "failed" ? "to_prepare" : "preparing";
+  const { error: orderError } = await db.from("orders").update({
+    fulfilment, tracking_number: d.tracking_number || null, tracking_url: d.tracking_url || null,
+    ...(d.status === "delivered" ? { delivered_at: now } : {}),
+    ...(d.status === "failed" ? { needs_review: true, review_note: "Le traitement fournisseur manuel a échoué. Une intervention est nécessaire." } : {}),
+  }).eq("id", current.order_id).eq("status", "paid");
+  if (orderError) throw new Error("Commande client non mise à jour : " + orderError.message);
+  return done("Traitement manuel enregistré : " + d.status + ".");
 }
 
 export async function generateWebhookSecret() {
