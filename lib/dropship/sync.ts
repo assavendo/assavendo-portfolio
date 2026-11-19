@@ -186,10 +186,8 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
   const changed = priceChanged || stockChanged || availabilityChanged;
 
   if (mapping.variant_id) {
-    const variant = await assertDb(
-      db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle(),
-      "Lecture variante synchronisée",
-    );
+    const { data: variant, error: variantError } = await db.from("product_variants").select("price_cents").eq("id", mapping.variant_id).maybeSingle();
+    if (variantError) throw new Error("Lecture variante synchronisée: " + variantError.message);
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     if (retail !== null && retail !== variant?.price_cents) {
       await assertDb(db.from("product_variants").update({ price_cents: retail, stock_qty: qty, active: available || qty > 0 }).eq("id", mapping.variant_id).eq("product_id", mapping.product_id), "Mise à jour variante");
@@ -207,10 +205,8 @@ async function applyRecord(mapping: Mapping, record: SupplierInventoryRecord, co
       }
     }
   } else {
-    const product = await assertDb(
-      db.from("products").select("price_cents").eq("id", mapping.product_id).maybeSingle(),
-      "Lecture produit synchronisé",
-    );
+    const { data: product, error: productError } = await db.from("products").select("price_cents").eq("id", mapping.product_id).maybeSingle();
+    if (productError) throw new Error("Lecture produit synchronisé: " + productError.message);
     const retail = cost === null ? null : retailFromCost(mapping, cost);
     const productUpdate: Record<string, unknown> = { stock_qty: qty };
     if (retail !== null) productUpdate.price_cents = retail;
