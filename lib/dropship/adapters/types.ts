@@ -59,6 +59,7 @@ export type AdapterShippingContext = {
   weightG: number;
   wrapWeightG: number;
   totalGoodsAmountEur: number;
+  totalGoodsAmountUsd: number;
   skuLines: Array<{ sku: string; variantId?: string | null; quantity: number; weightG?: number | null; volumeCm3?: number | null }>;
   volumeCm3: number;
   productProperties: string[];
